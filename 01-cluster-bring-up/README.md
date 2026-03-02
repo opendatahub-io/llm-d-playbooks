@@ -1,23 +1,21 @@
 # Step 01: Cluster Bring-up
 
 ## Purpose
-Install OpenShift/ xKS cluster
+
+Install and bootstrap a Kubernetes cluster on one of the tested platforms.
 
 ## Overview
-This step handles the initial cluster installation and bootstrap for OpenShift. We will add instructions for xKS cluster setup at a later date
 
-## Platform Options
+Cluster installation is handled by each platform's own tooling and documentation. This playbook does not cover cluster installation — refer to the official documentation for your platform below.
 
-### xKS (Kubernetes Distributions)
-- **Directory**: [xks/](xks/)
-- **Purpose**: Cluster install / bootstrap for Kubernetes distributions
+## Platform Documentation
 
-### OCP (OpenShift Container Platform)
-- **Directory**: [ocp/](ocp/)
-- **Purpose**: Cluster install / bootstrap for OpenShift
+| Platform | Documentation |
+|----------|--------------|
+| OpenShift Container Platform | [Installation overview](https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/html/installation_overview/ocp-installation-overview) |
+| Azure Kubernetes Service (AKS) | [AKS quickstart](https://learn.microsoft.com/en-us/azure/aks/learn/quick-kubernetes-deploy-portal) |
+| CoreWeave Kubernetes Service (CKS) | [CKS introduction](https://docs.coreweave.com/products/cks) |
 
-## Instructions
+## Next Steps
 
-1. Choose your platform (xKS or OpenShift)
-2. Follow the platform-specific instructions in the respective subdirectory
-3. Proceed to Step 02 once cluster is ready
+Once your cluster is running, proceed to [Step 02: Operator Installation](../02-operators/).

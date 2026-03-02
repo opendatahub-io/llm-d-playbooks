@@ -19,4 +19,4 @@ This directory contains shared utilities, scripts, and assets used across all de
 These shared resources are referenced and used by various steps in the deployment process. They provide common functionality to avoid duplication across the different deployment phases.
 
 ## Platform Detection
-The scripts directory includes platform detection utilities to help determine whether you're working with xKS or OCP, allowing the playbooks to automatically select the appropriate platform-specific configurations.
+The scripts directory includes platform detection utilities to help determine which platform you're working with, allowing the playbooks to automatically select the appropriate platform-specific configurations.
