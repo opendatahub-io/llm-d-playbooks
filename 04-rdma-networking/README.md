@@ -1,21 +1,23 @@
-# Step 04: High-Speed Networking
+# Step 04: RDMA Networking
 
 ## Purpose
-Configure high-speed networking (RoCE / InfiniBand)
+
+Configure RDMA networking (RoCE / InfiniBand)
 
 ## Overview
-This step configures high-speed networking components required for optimal LLM performance, including RoCE (RDMA over Converged Ethernet) and InfiniBand support.
+
+This step configures RDMA networking components required for optimal LLM performance, including RoCE (RDMA over Converged Ethernet) and InfiniBand support.
 
 ## Platform-Specific Configuration
 
 ### xKS Configuration
 - **Directory**: [apply/xks/](apply/xks/)
-- **Purpose**: High-speed networking configuration for xKS platforms
+- **Purpose**: RDMA networking configuration for managed Kubernetes platforms
 - **Components**: RoCE/IB drivers, network policies, device configurations
 
-### OCP Configuration
+### OpenShift Container Platform Configuration
 - **Directory**: [apply/ocp/](apply/ocp/)
-- **Purpose**: High-speed networking configuration for OpenShift
+- **Purpose**: RDMA networking configuration for OpenShift Container Platform
 - **Components**: RoCE/IB drivers, network policies, device configurations
 
 ## Networking Technologies
@@ -35,4 +37,4 @@ This step configures high-speed networking components required for optimal LLM p
 4. Validate networking configuration
 
 ## Next Steps
-Proceed to [Step 05: Secondary Network Validation](../05-secondary-network-validation/)
+Proceed to [Step 05: RDMA Network Validation](../05-rdma-network-validation/)

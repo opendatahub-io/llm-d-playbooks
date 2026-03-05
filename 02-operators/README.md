@@ -1,32 +1,33 @@
-# Step 02: Operators
+# Step 02: Operator Installation
 
 ## Purpose
-Install required operators for LLM deployment
+
+Install the operators and platform dependencies required for llm-d deployment.
 
 ## Overview
-This step handles the installation of operators required for LLM-D deployment, including both shared LLM-D operators and platform-specific dependencies.
 
-## Components
+The required operators differ by platform. Operator installation is documented in external guides — refer to the appropriate guide for your platform below.
 
-### LLM-D Operators
-- **Directory**: [apply/llm-d-operators/](apply/llm-d-operators/)
-- **Purpose**: Shared intent LLM-D operators (scripts may differ by platform)
+## Platform Guides
 
-### xKS Dependencies
-- **Directory**: [apply/xks-dependencies/](apply/xks-dependencies/)
-- **Purpose**: Platform-specific dependencies for xKS
+| Platform | Guide |
+|----------|-------|
+| OpenShift Container Platform | [llm-d-playbook](https://github.com/llm-d/llm-d-playbook) |
+| Managed Kubernetes (AKS / CKS) | [Deploying Red Hat AI Inference Server on Managed Kubernetes](https://opendatahub-io.github.io/rhaii-on-xks/deploying-llm-d-on-managed-kubernetes/) |
 
-### OCP Dependencies
-- **Directory**: [apply/ocp-dependencies/](apply/ocp-dependencies/)
-- **Purpose**: Platform-specific dependencies for OCP
+## Component Comparison
 
-## Installation Order
-1. Install platform-specific dependencies first
-2. Install LLM-D operators
-3. Verify operator installation
+The table below shows which components are installed per platform. The components serve equivalent roles but differ in implementation.
 
-## Validation
-- [Validation steps to be documented]
+| Component | OpenShift Container Platform | Managed Kubernetes |
+|-----------|------------------------------|---------------------|
+| TLS certificates | cert-manager | cert-manager |
+| Service mesh / gateway | Service Mesh 3 (Istio-based) | Istio via Sail Operator |
+| Inference controller | KServe (via RHOAI) | KServe (via Helm) |
+| Multi-node inference | LeaderWorkerSet | LeaderWorkerSet |
+| GPU support | NVIDIA GPU Operator | NVIDIA device plugin (pre-installed on CKS; manual on AKS) |
+| Load balancer | MetalLB (bare metal) | Cloud provider LB (built-in) |
 
 ## Next Steps
-Proceed to [Step 03: Control Plane Readiness](../03-control-plane-readiness/)
+
+Once operators are installed and healthy, proceed to [Step 03: Control Plane Readiness](../03-control-plane-readiness/).

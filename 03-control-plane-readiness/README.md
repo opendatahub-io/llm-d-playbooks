@@ -27,4 +27,4 @@ This step validates that the control plane is ready for LLM-D deployment by chec
 4. Ensure no blocking conditions exist
 
 ## Next Steps
-Proceed to [Step 04: High-Speed Networking](../04-high-speed-networking/)
+Proceed to [Step 04: RDMA Networking](../04-rdma-networking/)
