@@ -1,0 +1,12 @@
+# ConfigMap referenced by ClusterPolicy (kernelModuleConfig.name).
+# Required by DeepEP for NVSHMEM/IB GDA support.
+# See: https://github.com/deepseek-ai/DeepEP/blob/main/third-party/README.md#2-enable-nvshmem-ibgda-support
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kernel-module-params
+  namespace: nvidia-gpu-operator
+data:
+  nvidia.conf: |
+    NVreg_EnableStreamMemOPs=1
+    NVreg_RegistryDwords="PeerMappingOverride=1;"

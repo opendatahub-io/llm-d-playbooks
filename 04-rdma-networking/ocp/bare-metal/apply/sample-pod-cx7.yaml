@@ -1,0 +1,17 @@
+# Example Pod attached to the ConnectX-7 SR-IOV network.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sample-pod-cx7
+  annotations:
+    k8s.v1.cni.cncf.io/networks: network-cx7
+spec:
+  containers:
+  - name: sample-container
+    image: centos:latest
+    command: ["/bin/bash", "-c", "sleep INF"]
+    resources:
+      requests:
+        openshift.io/mellanox_cx7: "1"
+      limits:
+        openshift.io/mellanox_cx7: "1"
