@@ -9,7 +9,7 @@ The key things to understand when benchmarking intelligent inference scheduling 
 * KV Cache is key.  When an LLM processes context (specifically a large prompt), it take a lot of compute power to generate the key / value tensors for every token across every attention layer.
 * There is a significant performance boost gained by retrieving these tensors from the KV Cache rather than re-computing.
 * In a distributed environment i.e. multiple instances of vLLM, each instance has its own KV Cache, so it's very beneficial to route large context to the vLLM instance which has already cached these tensors.
-* Large repeated context is important, similar to multi-turn chat conversations where the previous context is included with each turn.  This is important to demonstrate KV Cache reuse.  **Do not run benchmarks with short unique prompts**
+* To highlight the value of prefix-aware routing in the intelligent inference scheduler, it is critical to benchmark with a dataset with repeated context. For example, a dataset which simulates multi-turn chat conversations where the previous context is included with each turn.  **Do not run benchmarks with short unique prompts**, as they will not benefit from intelligent inference scheduling.
 
 So for an effective comparison of intelligent inference scheduling with llm-d versus vanilla vLLM, we need to generate test data with large repeated prompts.  We should understand how much KV Cache is available per instance and generate our test data accordingly, e.g. to fill the KV Cache on each instance to 80%.
 
