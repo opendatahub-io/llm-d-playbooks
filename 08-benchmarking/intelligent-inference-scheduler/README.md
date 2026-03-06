@@ -47,7 +47,7 @@ Access Grafana with default credentials: `admin` / `admin`
 | Metric | What to Look For |
 |--------|------------------|
 | **KV Cache Hit Rate** | Higher is better - LLM-D should show 90%+ vs ~60% for round-robin, depending on dataset|
-| **Time to First Token (TTFT)** | Lower P95/P99 indicates better tail latency |
+| **Time to First Token (TTFT)** | Lower Mean TTFTand P95/P99 indicates better tail latency |
 | **Requests per Second** | Overall throughput |
 | **GPU Utilization** | Balanced utilization across replicas |
 
@@ -240,8 +240,8 @@ Once the job completes you will see the request latency statistics e.g.
 | Strategy   | Sec             || ms           || ms         || ms         ||
 |            | Mdn     | p95    | Mdn   | p95   | Mdn  | p95  | Mdn  | p95  |
 |------------|---------|--------|-------|-------|------|------|------|------|
-| concurrent | 3.0     | 3.3    | 104.5 | 253.1 | 11.6 | 12.5 | 12.0 | 13.3 |
-| concurrent | 2.4     | 2.9    | 172.0 | 316.1 | 9.2  | 11.0 | 9.7  | 11.7 |
+| concurrent | 3.8     | 4.5    | 184.1 | 500.7 | 14.5 | 17.0 | 15.3 | 18.2 |
+| concurrent | 6.1     | 7.5    | 241.0 | 872.2 | 23.1 | 28.2 | 24.4 | 29.9 |
 |============|=========|========|=======|=======|======|======|======|======|
 ```
 
@@ -249,7 +249,7 @@ Take note of these results for vLLM.
 
 #### Grafana dashboard
 
-Look at the grafana dashboard, you should see the KV Cache Hit rate landing at around 65%, meaning about two thirds of requests are hitting vLLM pods which have already processed this prompt.  You should also see some high values being recorded for TTFT throughout the benchmark.
+Look at the grafana dashboard, you should see the KV Cache Hit rate landing at around 54%, meaning just over half of the requests are hitting vLLM pods which have already processed this prompt.  You should also see some high values being recorded for TTFT throughout the benchmark.
 
 ![vLLM Grafana Dashboard](assets/vllm-grafana.png)
 
@@ -307,54 +307,56 @@ Once the job completes you will see the request latency statistics e.g.
 
 ```
 ℹ Request Latency Statistics (Completed Requests)
-|============|=========|========|======|=======|=====|======|=====|======|
-| Benchmark  | Request Latency || TTFT        || ITL       || TPOT      ||
-| Strategy   | Sec             || ms          || ms        || ms        ||
-|            | Mdn     | p95    | Mdn  | p95   | Mdn | p95  | Mdn | p95  |
-|------------|---------|--------|------|-------|-----|------|-----|------|
-| concurrent | 1.9     | 2.4    | 52.3 | 165.8 | 7.4 | 9.4  | 7.6 | 9.8  |
-| concurrent | 2.3     | 3.0    | 53.9 | 83.0  | 9.1 | 11.9 | 9.3 | 12.1 |
-|============|=========|========|======|=======|=====|======|=====|======|
+|============|=========|========|======|=======|======|======|======|======|
+| Benchmark  | Request Latency || TTFT        || ITL        || TPOT       ||
+| Strategy   | Sec             || ms          || ms         || ms         ||
+|            | Mdn     | p95    | Mdn  | p95   | Mdn  | p95  | Mdn  | p95  |
+|------------|---------|--------|------|-------|------|------|------|------|
+| concurrent | 3.5     | 5.9    | 77.1 | 332.2 | 13.4 | 22.5 | 13.9 | 23.5 |
+| concurrent | 4.7     | 6.9    | 87.4 | 490.4 | 18.7 | 26.0 | 19.0 | 27.4 |
+|============|=========|========|======|=======|======|======|======|======|
 ```
 
 Take note of these results for LLM-D.
 
 #### Grafana dashboard
 
-Look at the grafana dashboard, you should see the KV Cache Hit rate landing at around 94%, meaning the majority of requests are hitting vLLM pods which have already processed this prompt.  You should also see the TTFT values steadily declining.  Both of these metrics are indications of the benefits of llm-d intelligent inference scheduling.
+Look at the grafana dashboard, you should see the KV Cache Hit rate landing at around 92%, meaning the majority of requests are hitting vLLM pods which have already processed this prompt.  You should also see the TTFT values steadily declining.  Both of these metrics are indications of the benefits of llm-d intelligent inference scheduling.
 
 ![vLLM Grafana Dashboard](assets/llm-d-grafana.png)
 
 
 ## Step 7: Compare Results
 
-Compare the GuideLLM output from Steps 4 and 6 side-by-side.
+Compare the GuideLLM output from Steps 4 and 6 side-by-side. The benchmarks were run at concurrency levels of 32 and 64.
 
 ### Request Latency
 
 | | vLLM | | LLM-D | | |
 |--|------|------|-------|------|------|
-| **Concurrency** | **Mdn (s)** | **p95 (s)** | **Mdn (s)** | **p95 (s)** | **Improvement** |
-| 8 | 3.0 | 3.3 | 1.9 | 2.4 | **37% faster** (Mdn) |
-| 16 | 2.4 | 2.9 | 2.3 | 3.0 | ~4% faster (Mdn) |
+| **Concurrency** | **Mdn (s)** | **p95 (s)** | **Mdn (s)** | **p95 (s)** | **Improvement (Mdn)** |
+| 32 | 3.8 | 4.5 | 3.5 | 5.9 | **8% faster** |
+| 64 | 6.1 | 7.5 | 4.7 | 6.9 | **23% faster** |
 
 ### Time to First Token (TTFT)
 
 | | vLLM | | LLM-D | | |
 |--|------|------|-------|------|------|
 | **Concurrency** | **Mdn (ms)** | **p95 (ms)** | **Mdn (ms)** | **p95 (ms)** | **Improvement** |
-| 8 | 104.5 | 253.1 | 52.3 | 165.8 | **50% faster** (Mdn), **35% faster** (p95) |
-| 16 | 172.0 | 316.1 | 53.9 | 83.0 | **69% faster** (Mdn), **74% faster** (p95) |
+| 32 | 184.1 | 500.7 | 77.1 | 332.2 | **58% faster** (Mdn), **34% faster** (p95) |
+| 64 | 241.0 | 872.2 | 87.4 | 490.4 | **64% faster** (Mdn), **44% faster** (p95) |
 
-TTFT is where LLM-D's intelligent routing shows the biggest impact. At concurrency 16, median TTFT drops from 172 ms to 54 ms because LLM-D routes requests to replicas that already have the prefix cached, avoiding redundant prefill computation.
+TTFT is where LLM-D's intelligent routing shows the biggest impact. At concurrency 64, median TTFT drops from 241 ms to 87 ms because LLM-D routes requests to replicas that already have the prefix cached, avoiding redundant prefill computation. The improvement is even more pronounced at the p95 tail: 872 ms down to 490 ms.
 
 ### Inter-Token Latency (ITL) and Time Per Output Token (TPOT)
 
 | | vLLM | | LLM-D | | |
 |--|------|------|-------|------|------|
 | **Concurrency** | **ITL Mdn (ms)** | **TPOT Mdn (ms)** | **ITL Mdn (ms)** | **TPOT Mdn (ms)** | **Improvement** |
-| 8 | 11.6 | 12.0 | 7.4 | 7.6 | **36% faster** (ITL) |
-| 16 | 9.2 | 9.7 | 9.1 | 9.3 | ~comparable |
+| 32 | 14.5 | 15.3 | 13.4 | 13.9 | ~8% faster (ITL), ~9% faster (TPOT) |
+| 64 | 23.1 | 24.4 | 18.7 | 19.0 | **19% faster** (ITL), **22% faster** (TPOT) |
+
+At higher concurrency, LLM-D's more efficient cache utilization reduces decode-phase latency as well. The improvement scales with load because cache hits free up GPU compute that would otherwise be spent on redundant prefill.
 
 ### KV Cache Hit Rate (Grafana)
 
@@ -368,9 +370,9 @@ With round-robin routing, a repeated prompt has only a 1-in-4 chance of hitting 
 
 The results demonstrate two key advantages of intelligent inference scheduling:
 
-1. **Dramatically lower TTFT** - By routing requests to replicas that already hold the prefix in KV cache, LLM-D avoids redundant prefill computation. This is most visible at higher concurrency where cache misses cause queueing.
+1. **Dramatically lower TTFT** - By routing requests to replicas that already hold the prefix in KV cache, LLM-D avoids redundant prefill computation. At concurrency 64, median TTFT improved by 64% (241 ms → 87 ms), with tail latency (p95) improving by 44% (872 ms → 490 ms).
 
-2. **Higher KV cache hit rates** - Round-robin routing distributes requests randomly across replicas, so cached prefixes are often missed. LLM-D's prefix-cache-scorer (weight: 3) ensures requests land on the replica with the cached prefix, while the kv-cache-utilization-scorer (weight: 2) and queue-scorer (weight: 2) keep load balanced.
+2. **Higher KV cache hit rates** - Round-robin routing distributes requests randomly across replicas, so cached prefixes are often missed. LLM-D's prefix-cache-scorer (weight: 3) ensures requests land on the replica with the cached prefix, while the kv-cache-utilization-scorer and queue-scorer keep load balanced. This pushed cache hit rates from ~65% to ~94%.
 
 ## Clean Up
 

@@ -19,7 +19,7 @@ spec:
           - name: GUIDELLM_PROFILE
             value: concurrent
           - name: GUIDELLM_RATE
-            value: "8,16"
+            value: "32,64"
           - name: GUIDELLM_MAX_SECONDS
             value: "3000"
           - name: GUIDELLM_DATA
