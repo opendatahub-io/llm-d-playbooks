@@ -46,7 +46,7 @@ Access Grafana with default credentials: `admin` / `admin`
 
 | Metric | What to Look For |
 |--------|------------------|
-| **KV Cache Hit Rate** | Higher is better - LLM-D should show 95%+ vs ~60% for round-robin |
+| **KV Cache Hit Rate** | Higher is better - LLM-D should show 90%+ vs ~60% for round-robin, depending on dataset|
 | **Time to First Token (TTFT)** | Lower P95/P99 indicates better tail latency |
 | **Requests per Second** | Overall throughput |
 | **GPU Utilization** | Balanced utilization across replicas |
