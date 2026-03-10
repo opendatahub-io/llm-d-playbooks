@@ -1,0 +1,2 @@
+pandas
+guidellm==0.3.1

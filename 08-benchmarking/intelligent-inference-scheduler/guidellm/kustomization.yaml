@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Use overlays for specific deployments:
+#   oc apply -k guidellm/overlays/vllm
+#   oc apply -k guidellm/overlays/llm-d
+
+resources:
+  - overlays/vllm
