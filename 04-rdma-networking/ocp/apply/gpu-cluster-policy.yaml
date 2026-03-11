@@ -1,0 +1,104 @@
+# NVIDIA GPU Operator ClusterPolicy for RDMA (nvidia-peermem, gdrcopy).
+# References kernel-module-params ConfigMap for DeepEP driver settings.
+# Apply after the GPU Operator is installed (see Step 02). Apply configmap-nvidia-kmod-params.yaml first.
+apiVersion: nvidia.com/v1
+kind: ClusterPolicy
+metadata:
+  name: cluster-policy
+  namespace: nvidia-gpu-operator
+spec:
+  # --- General Operator Settings ---
+  operator:
+    defaultRuntime: crio
+    initContainer: {}
+    runtimeClass: nvidia
+    use_ocp_driver_toolkit: true
+  # --- Driver & Licensing ---
+  driver:
+    enabled: true
+    licensingConfig:
+      configMapName: 'nvidia-licensing-config'
+      nlsEnabled: true
+    kernelModuleType: auto
+    certConfig:
+      name: ''
+    rdma:
+      enabled: true      # Enables nvidia-peermem
+      useHostMofed: false # Requires Network Operator on bare metal
+    useNvidiaDriverCRD: false
+    kernelModuleConfig:
+      name: 'kernel-module-params'
+    usePrecompiled: false
+    repoConfig:
+      configMapName: ''
+    upgradePolicy:
+      autoUpgrade: true
+      maxParallelUpgrades: 1
+      maxUnavailable: 25%
+      drain:
+        deleteEmptyDir: false
+        enable: false
+        force: false
+        timeoutSeconds: 300
+      podDeletion:
+        deleteEmptyDir: false
+        force: false
+        timeoutSeconds: 300
+      waitForCompletion:
+        timeoutSeconds: 0
+  # --- Monitoring ---
+  dcgm:
+    enabled: true
+  dcgmExporter:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+  config:
+    name: ''
+  nodeStatusExporter:
+    enabled: true
+  # --- Device Plugins & Topology ---
+  devicePlugin:
+    enabled: true
+    config:
+      default: ''
+      name: ''
+  mps:
+    root: /run/nvidia/mps
+  sandboxDevicePlugin:
+    enabled: true
+  virtualTopology:
+    config: ''
+  # --- Advanced Features (MIG, RDMA, GDR) ---
+  mig:
+    strategy: single
+  migManager:
+    enabled: true
+  vgpuDeviceManager:
+    enabled: true
+  gdrcopy:
+    enabled: true
+  gfd:
+    enabled: true
+  vfioManager:
+    enabled: true
+  # --- Toolkit ---
+  toolkit:
+    enabled: true
+    installDir: /usr/local/nvidia
+  # --- Updates & Validation ---
+  daemonsets:
+    rollingUpdate:
+      maxUnavailable: '1'
+    updateStrategy: RollingUpdate
+  validator:
+    plugin:
+      env: []
+  # --- Disabled Components ---
+  sandboxWorkloads:
+    defaultWorkload: container
+    enabled: false
+  gds:
+    enabled: false
+  vgpuManager:
+    enabled: false

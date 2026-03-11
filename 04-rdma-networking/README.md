@@ -2,39 +2,21 @@
 
 ## Purpose
 
-Configure RDMA networking (RoCE / InfiniBand)
+Configure RDMA networking (RoCE / InfiniBand) for optimal LLM performance.
 
 ## Overview
 
-This step configures RDMA networking components required for optimal LLM performance, including RoCE (RDMA over Converged Ethernet) and InfiniBand support.
+This step configures RDMA networking (RoCE / InfiniBand) components required for llm-d. Configuration differs by platform. Currently covered: OpenShift Container Platform on IBM Cloud and OpenShift Container Platform on Bare Metal with SR-IOV; other platforms (e.g. CKS, AKS) will be added later.
 
-## Platform-Specific Configuration
+**InfiniBand + SR-IOV:** A kernel bug in certain RHEL 9.6 kernels (e.g. 5.14.0-570.76.1) breaks SR-IOV for InfiniBand—the SR-IOV Network Operator cannot discover IB PFs and pod networking fails. The fix is merged upstream; a backport to the RHEL 5.14.0-570.x series is requested. See [RHEL-145522](https://issues.redhat.com/browse/RHEL-145522).
 
-### xKS Configuration
-- **Directory**: [apply/xks/](apply/xks/)
-- **Purpose**: RDMA networking configuration for managed Kubernetes platforms
-- **Components**: RoCE/IB drivers, network policies, device configurations
+## Structure
 
-### OpenShift Container Platform Configuration
-- **Directory**: [apply/ocp/](apply/ocp/)
-- **Purpose**: RDMA networking configuration for OpenShift Container Platform
-- **Components**: RoCE/IB drivers, network policies, device configurations
-
-## Networking Technologies
-
-### RoCE (RDMA over Converged Ethernet)
-- Low-latency, high-throughput networking
-- Ethernet-based RDMA implementation
-
-### InfiniBand
-- High-performance networking protocol
-- Ultra-low latency communication
-
-## Configuration Steps
-1. Install platform-specific networking components
-2. Configure RDMA drivers
-3. Set up network policies
-4. Validate networking configuration
+- [**OpenShift Container Platform (OCP)**](ocp/README.md) — Common OCP steps and platform-specific instructions:
+  - [OCP on IBM Cloud](ocp/ibm-cloud/README.md) — Cluster network and validation for H100/H200 instances
+  - [OCP on Bare Metal with SR-IOV](ocp/bare-metal/README.md) — NVIDIA Network Operator, SR-IOV operator, Mellanox RoCE
+- [**Managed Kubernetes**](managed-k8s/README.md) — CKS, AKS (placeholder; to come later)
 
 ## Next Steps
-Proceed to [Step 05: RDMA Network Validation](../05-rdma-network-validation/)
+
+After RDMA networking is configured, proceed to [Step 05: RDMA Network Validation](../05-rdma-network-validation/).
