@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: demo-llm-benchmarks
+
+namePrefix: vllm-granite-
+
+resources:
+  - ../../base
+
+patches:
+  - target:
+      kind: Job
+      name: guidellm-benchmark
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: "http://granite-vllm-lb.demo-llm.svc.cluster.local:8000/v1"
+      - op: replace
+        path: /spec/template/spec/containers/0/env/6/value
+        value: "ibm-granite/granite-3.3-8b-instruct"
+      - op: replace
+        path: /spec/template/spec/volumes/2/persistentVolumeClaim/claimName
+        value: "benchmark-data"

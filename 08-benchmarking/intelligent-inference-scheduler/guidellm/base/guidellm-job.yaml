@@ -20,6 +20,8 @@ spec:
             value: concurrent
           - name: GUIDELLM_RATE
             value: "32,64"
+          - name: GUIDELLM_OUTPUTS
+            value: json,csv
           - name: GUIDELLM_MAX_SECONDS
             value: "3000"
           - name: GUIDELLM_DATA

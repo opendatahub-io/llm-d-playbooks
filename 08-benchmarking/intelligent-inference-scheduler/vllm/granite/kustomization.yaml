@@ -1,0 +1,39 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: demo-llm
+
+resources:
+  - ../base
+
+patches:
+  - target:
+      kind: InferenceService
+      name: vllm
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: granite-vllm
+      - op: replace
+        path: /spec/predictor/model/storageUri
+        value: "oci://quay.io/redhat-ai-services/modelcar-catalog:granite-3.3-8b-instruct"
+  - target:
+      kind: Service
+      name: vllm-lb
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: granite-vllm-lb
+      - op: replace
+        path: /spec/selector/app
+        value: isvc.granite-vllm-predictor
+  - target:
+      kind: PodMonitor
+      name: vllm-monitor
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: granite-vllm-monitor
+      - op: replace
+        path: /spec/selector/matchLabels/serving.kserve.io~1inferenceservice
+        value: granite-vllm
