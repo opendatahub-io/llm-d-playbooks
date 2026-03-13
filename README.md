@@ -14,15 +14,33 @@ This repository contains playbooks for deploying and validating [llm-d](https://
 
 ## Deployment Steps
 
-| Directory | Purpose |
-|-----------|---------|
-| [01-cluster-bring-up/](01-cluster-bring-up/) | Install and bootstrap a Kubernetes cluster on one of the tested platforms. |
-| [02-operators/](02-operators/) | Install the operators required for llm-d (cert-manager, service mesh, KServe, LeaderWorkerSet, etc.). |
-| [03-control-plane-readiness/](03-control-plane-readiness/) | Validate that all required CRDs are present, operators are healthy, and the cluster is ready for llm-d. |
-| [04-rdma-networking/](04-rdma-networking/) | Configure RDMA networking (RoCE / InfiniBand) for prefill-decode disaggregation and multi-node inference. |
-| [05-rdma-network-validation/](05-rdma-network-validation/) | Validate RDMA network connectivity, bandwidth, and latency. |
-| [06-llm-d-deploy/](06-llm-d-deploy/) | Deploy llm-d and benchmark tools (GuideLLM). |
-| [07-llm-deployment-validation/](07-llm-deployment-validation/) | Validate the deployment through functional and performance tests. |
+| Chapter | Directory | Purpose | OCP | xKS |
+|---------|-----------|---------|-----|-----|
+| 0 | [00-pre/](00-pre/) | Clean up prior installations, label nodes | Y | Y |
+| 1 | [01-cluster-install/](01-cluster-install/) | Install and bootstrap a Kubernetes cluster | Y | Y |
+| 2 | [02-validate-cluster-install/](02-validate-cluster-install/) | Verify cluster meets minimum requirements | Y | Y |
+| 3 | [03-llm-d-dependencies/](03-llm-d-dependencies/) | Install llm-d operators (cert-manager, service mesh, KServe, etc.) | Y | Y |
+| 4 | [04-validate-llm-d-dependencies/](04-validate-llm-d-dependencies/) | Validate CRDs and pod network bandwidth | Y | Y |
+| 5 | [05-ocp-accelerator-operators/](05-ocp-accelerator-operators/) | Install GPU, RDMA, and networking operators (NFD, GPU, Network, SR-IOV) | Y | N |
+| 6 | [06-validate-gpu-readiness/](06-validate-gpu-readiness/) | Verify GPU resources are available on nodes | Y | Y |
+| 7 | [07-rdma-validation/](07-rdma-validation/) | Validate RDMA connectivity, bandwidth, and latency | Y | N |
+| 8 | [08-llm-d-deploy/](08-llm-d-deploy/) | Deploy llm-d | Y | Y |
+| 9 | [09-benchmarks/](09-benchmarks/) | Inference scheduling benchmarks | Y | Y |
+
+## Chapter 5: OCP Accelerator Operators
+
+Chapter 5 supports three hardware platforms via kustomize overlays:
+
+| Platform | Description |
+|----------|-------------|
+| `bare-metal-ib` | Bare-metal with InfiniBand RDMA |
+| `bare-metal-roce` | Bare-metal with RoCE RDMA |
+| `ibm-cloud` | IBM Cloud VMs (host-device + NADs) |
+
+Three installation modes are available:
+- **Manual**: Step-by-step `oc apply -k` with explanations in each step's README
+- **Script**: `./05-ocp-accelerator-operators/install.sh --platform <platform>`
+- **ArgoCD**: GitOps app-of-apps under `05-ocp-accelerator-operators/argocd/`
 
 ## Shared Resources
 

@@ -1,0 +1,249 @@
+# NetworkAttachmentDefinitions for IBM Cloud H100 instances.
+# Each NAD maps one NIC using the host-device CNI plugin with DHCP IPAM.
+# Source-based routing (sbr-custom) is required for cross-subnet
+# communication needed by WideEP / NVSHMEM.
+#
+# The device names and gateway IPs below are for gx3d-160x1792x8h100
+# instances. Adjust for your instance type.
+#
+# The target namespace should match your workload namespace.
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: "dhcp-host-device-port-1"
+spec:
+  config: '{
+      "cniVersion": "0.3.1",
+      "name": "dhcp-host-device-port-1",
+      "plugins": [
+        {
+          "type": "host-device",
+          "device": "enp163s0",
+          "isRdma": true,
+          "ipam": {
+            "type": "dhcp"
+          }
+        },
+        {
+          "type": "sbr-custom",
+          "gateway": "10.0.0.1",
+          "preserveDefaultRoutes": true
+        },
+        {
+          "type": "tuning",
+          "name": "mytuning",
+          "mtu": 9000
+        }
+      ]
+    }'
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: "dhcp-host-device-port-2"
+spec:
+  config: '{
+      "cniVersion": "0.3.1",
+      "name": "dhcp-host-device-port-2",
+      "plugins": [
+        {
+          "type": "host-device",
+          "device": "enp173s0",
+          "isRdma": true,
+          "ipam": {
+            "type": "dhcp"
+          }
+        },
+        {
+          "type": "sbr-custom",
+          "gateway": "10.1.0.1",
+          "preserveDefaultRoutes": true
+        },
+        {
+          "type": "tuning",
+          "name": "mytuning",
+          "mtu": 9000
+        }
+      ]
+    }'
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: "dhcp-host-device-port-3"
+spec:
+  config: '{
+      "cniVersion": "0.3.1",
+      "name": "dhcp-host-device-port-3",
+      "plugins": [
+        {
+          "type": "host-device",
+          "device": "enp183s0",
+          "isRdma": true,
+          "ipam": {
+            "type": "dhcp"
+          }
+        },
+        {
+          "type": "sbr-custom",
+          "gateway": "10.2.0.1",
+          "preserveDefaultRoutes": true
+        },
+        {
+          "type": "tuning",
+          "name": "mytuning",
+          "mtu": 9000
+        }
+      ]
+    }'
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: "dhcp-host-device-port-4"
+spec:
+  config: '{
+      "cniVersion": "0.3.1",
+      "name": "dhcp-host-device-port-4",
+      "plugins": [
+        {
+          "type": "host-device",
+          "device": "enp193s0",
+          "isRdma": true,
+          "ipam": {
+            "type": "dhcp"
+          }
+        },
+        {
+          "type": "sbr-custom",
+          "gateway": "10.3.0.1",
+          "preserveDefaultRoutes": true
+        },
+        {
+          "type": "tuning",
+          "name": "mytuning",
+          "mtu": 9000
+        }
+      ]
+    }'
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: "dhcp-host-device-port-5"
+spec:
+  config: '{
+      "cniVersion": "0.3.1",
+      "name": "dhcp-host-device-port-5",
+      "plugins": [
+        {
+          "type": "host-device",
+          "device": "enp203s0",
+          "isRdma": true,
+          "ipam": {
+            "type": "dhcp"
+          }
+        },
+        {
+          "type": "sbr-custom",
+          "gateway": "10.4.0.1",
+          "preserveDefaultRoutes": true
+        },
+        {
+          "type": "tuning",
+          "name": "mytuning",
+          "mtu": 9000
+        }
+      ]
+    }'
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: "dhcp-host-device-port-6"
+spec:
+  config: '{
+      "cniVersion": "0.3.1",
+      "name": "dhcp-host-device-port-6",
+      "plugins": [
+        {
+          "type": "host-device",
+          "device": "enp213s0",
+          "isRdma": true,
+          "ipam": {
+            "type": "dhcp"
+          }
+        },
+        {
+          "type": "sbr-custom",
+          "gateway": "10.5.0.1",
+          "preserveDefaultRoutes": true
+        },
+        {
+          "type": "tuning",
+          "name": "mytuning",
+          "mtu": 9000
+        }
+      ]
+    }'
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: "dhcp-host-device-port-7"
+spec:
+  config: '{
+      "cniVersion": "0.3.1",
+      "name": "dhcp-host-device-port-7",
+      "plugins": [
+        {
+          "type": "host-device",
+          "device": "enp223s0",
+          "isRdma": true,
+          "ipam": {
+            "type": "dhcp"
+          }
+        },
+        {
+          "type": "sbr-custom",
+          "gateway": "10.6.0.1",
+          "preserveDefaultRoutes": true
+        },
+        {
+          "type": "tuning",
+          "name": "mytuning",
+          "mtu": 9000
+        }
+      ]
+    }'
+---
+apiVersion: "k8s.cni.cncf.io/v1"
+kind: NetworkAttachmentDefinition
+metadata:
+  name: "dhcp-host-device-port-8"
+spec:
+  config: '{
+      "cniVersion": "0.3.1",
+      "name": "dhcp-host-device-port-8",
+      "plugins": [
+        {
+          "type": "host-device",
+          "device": "enp233s0",
+          "isRdma": true,
+          "ipam": {
+            "type": "dhcp"
+          }
+        },
+        {
+          "type": "sbr-custom",
+          "gateway": "10.7.0.1",
+          "preserveDefaultRoutes": true
+        },
+        {
+          "type": "tuning",
+          "name": "mytuning",
+          "mtu": 9000
+        }
+      ]
+    }'

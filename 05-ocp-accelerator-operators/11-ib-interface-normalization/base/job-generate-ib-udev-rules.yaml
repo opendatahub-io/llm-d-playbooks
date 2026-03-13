@@ -1,0 +1,209 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ib-udev-generator
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ib-udev-generator
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/exec", "pods/log", "nodes", "namespaces"]
+    verbs: ["get", "list", "create", "watch", "delete"]
+  - apiGroups: ["machineconfiguration.openshift.io"]
+    resources: ["machineconfigs", "machineconfigpools"]
+    verbs: ["get", "list", "create", "update", "patch", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ib-udev-generator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ib-udev-generator
+subjects:
+  - kind: ServiceAccount
+    name: ib-udev-generator
+    namespace: default
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: generate-ib-udev-rules
+  namespace: default
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: ib-udev-generator
+    spec:
+      serviceAccountName: ib-udev-generator
+      restartPolicy: OnFailure
+      containers:
+        - name: generator
+          image: registry.redhat.io/openshift4/ose-cli:latest
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+
+              echo "=========================================="
+              echo "RDMA Interface Name Normalizer"
+              echo "=========================================="
+              echo ""
+              echo "This job:"
+              echo "  1. Discovers all RDMA-capable NICs (InfiniBand & RoCE)"
+              echo "  2. Generates udev rules for consistent naming"
+              echo "  3. Applies MachineConfig to rename interfaces"
+              echo "  4. Waits for nodes to reboot"
+              echo ""
+
+              dnf install -y python3 jq >/dev/null 2>&1
+
+              WORKER_NODES=$(oc get nodes -l node-role.kubernetes.io/worker -o jsonpath='{.items[*].metadata.name}')
+
+              if [ -z "$WORKER_NODES" ]; then
+                echo "No worker nodes found - skipping"
+                exit 0
+              fi
+
+              NODE_COUNT=$(echo $WORKER_NODES | wc -w)
+              echo "Found $NODE_COUNT worker nodes"
+              echo ""
+
+              echo "=== Discovering RDMA-capable NICs (InfiniBand & RoCE) ==="
+              mkdir -p /tmp/discovery
+
+              for NODE in $WORKER_NODES; do
+                echo "Node: $NODE"
+
+                oc debug node/$NODE --image=registry.access.redhat.com/ubi9/ubi:latest -- bash -c '
+                  chroot /host bash -c "
+                    for iface in /sys/class/net/*; do
+                      ifname=\$(basename \$iface)
+
+                      has_ip=\$(ip addr show \$ifname 2>/dev/null | grep -c \"inet \" || echo 0)
+                      if [ \"\$has_ip\" -gt 0 ]; then
+                        continue
+                      fi
+
+                      if [[ \$ifname =~ ^(br-|veth|ovn|genev|vlan|bond|team) ]]; then
+                        continue
+                      fi
+
+                      if [ -d \"/sys/class/net/\$ifname/device/infiniband\" ]; then
+                        pci_path=\$(readlink -f /sys/class/net/\$ifname/device 2>/dev/null || echo unknown)
+                        pci=\$(basename \$pci_path)
+                        rdma_dev=\$(ls /sys/class/net/\$ifname/device/infiniband 2>/dev/null | head -1)
+                        if [ -n \"\$rdma_dev\" ]; then
+                          link_layer=\$(cat /sys/class/infiniband/\$rdma_dev/ports/1/link_layer 2>/dev/null || echo unknown)
+                          if [[ \$link_layer == InfiniBand ]] || [[ \$link_layer == Ethernet ]]; then
+                            echo \"\$ifname|\$pci|\$link_layer\"
+                          fi
+                        fi
+                      fi
+                    done
+                  "
+                ' 2>&1 | grep -v "Starting pod" | grep -v "Removing debug pod" | grep -v "To use host binaries" | while IFS='|' read -r ifname pci link_layer; do
+                  if [ -n "$ifname" ] && [ "$pci" != "unknown" ] && [ -n "$pci" ] && [[ ! "$ifname" =~ ^E[0-9] ]]; then
+                    link_type="unknown"
+                    [ "$link_layer" = "InfiniBand" ] && link_type="IB"
+                    [ "$link_layer" = "Ethernet" ] && link_type="RoCE"
+                    echo "  $ifname (PCI: $pci, Type: $link_type)"
+                    echo "$NODE|$ifname|$pci" >> /tmp/discovery/all-rdma.txt
+                  fi
+                done
+              done
+
+              if [ ! -f /tmp/discovery/all-rdma.txt ]; then
+                echo ""
+                echo "No RDMA devices found - skipping normalization"
+                exit 0
+              fi
+
+              echo ""
+              echo "=== Generating Udev Rules ==="
+
+              python3 << 'EOF'
+              import base64
+              import json
+              from collections import defaultdict
+
+              pci_to_nodes = defaultdict(list)
+
+              with open('/tmp/discovery/all-rdma.txt', 'r') as f:
+                for line in f:
+                  node, ifname, pci = line.strip().split('|')
+                  pci_to_nodes[pci].append({'node': node, 'ifname': ifname})
+
+              all_pci_addresses = sorted(pci_to_nodes.keys())
+
+              print(f"Total unique RDMA NICs (InfiniBand + RoCE): {len(all_pci_addresses)}")
+
+              pci_to_name = {}
+              for pos, pci in enumerate(all_pci_addresses):
+                norm_name = f"ib_nic{pos}"
+                pci_to_name[pci] = norm_name
+                nodes_with_nic = sorted(set(d['node'] for d in pci_to_nodes[pci]))
+                print(f"  {norm_name} <- PCI {pci} (on {len(nodes_with_nic)} node(s))")
+
+              rules = [
+                "# Auto-generated udev rules to normalize RDMA interface names (InfiniBand & RoCE)",
+                "# Each PCI address gets a globally consistent name across all nodes",
+                ""
+              ]
+
+              for pos, pci in enumerate(all_pci_addresses):
+                norm_name = f"ib_nic{pos}"
+                rules.append(f"# {norm_name} <- PCI {pci}")
+                rules.append(f'SUBSYSTEM=="net", ACTION=="add", KERNELS=="{pci}", NAME="{norm_name}"')
+                rules.append("")
+
+              udev_content = '\n'.join(rules)
+              udev_b64 = base64.b64encode(udev_content.encode()).decode()
+
+              mc = {
+                "apiVersion": "machineconfiguration.openshift.io/v1",
+                "kind": "MachineConfig",
+                "metadata": {
+                  "labels": {"machineconfiguration.openshift.io/role": "worker"},
+                  "name": "99-worker-normalize-ib-interfaces"
+                },
+                "spec": {
+                  "config": {
+                    "ignition": {"version": "3.2.0"},
+                    "storage": {
+                      "files": [{
+                        "contents": {"source": f"data:text/plain;charset=utf-8;base64,{udev_b64}"},
+                        "mode": 420,
+                        "overwrite": True,
+                        "path": "/etc/udev/rules.d/99-normalize-ib-interfaces.rules"
+                      }]
+                    }
+                  }
+                }
+              }
+
+              with open('/tmp/mc.json', 'w') as f:
+                json.dump(mc, f)
+              EOF
+
+              echo ""
+              echo "=== Applying MachineConfig ==="
+              oc apply -f /tmp/mc.json
+
+              echo "MachineConfig created: 99-worker-normalize-ib-interfaces"
+              echo ""
+              echo "Worker nodes will reboot to apply changes."
+              echo "Monitor: oc get mcp worker -w"
+              echo ""
+              echo "New interface names: ib_nic0, ib_nic1, ib_nic2, etc."
+              echo ""
+              echo "=== Job Complete ==="

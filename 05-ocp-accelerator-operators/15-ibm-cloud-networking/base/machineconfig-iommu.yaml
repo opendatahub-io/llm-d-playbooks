@@ -1,0 +1,23 @@
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfigPool
+metadata:
+  name: gpu-h100
+spec:
+  nodeSelector:
+    matchLabels:
+      beta.kubernetes.io/instance-type: gx3d-160x1792x8h100
+  machineConfigSelector:
+    matchExpressions:
+      - {key: machineconfiguration.openshift.io/role, operator: In, values: [worker, gpu-h100]}
+  paused: false
+---
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  name: 100-gpu-h100-iommu
+  labels:
+    machineconfiguration.openshift.io/role: gpu-h100
+spec:
+  kernelArguments:
+    - intel_iommu=on
+    - iommu=pt

@@ -1,0 +1,35 @@
+apiVersion: mellanox.com/v1alpha1
+kind: NicClusterPolicy
+metadata:
+  name: nic-cluster-policy
+spec:
+  ofedDriver:
+    image: doca-driver
+    repository: nvcr.io/nvidia/mellanox
+    version: 25.01-0.6.0.0-0
+    env:
+    - name: UNLOAD_STORAGE_MODULES
+      value: "true"
+    - name: RESTORE_DRIVER_ON_POD_TERMINATION
+      value: "true"
+    - name: CREATE_IFNAMES_UDEV
+      value: "true"
+    livenessProbe:
+      initialDelaySeconds: 30
+      periodSeconds: 30
+    readinessProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 30
+    startupProbe:
+      initialDelaySeconds: 10
+      periodSeconds: 20
+    terminationGracePeriodSeconds: 300
+    upgradePolicy:
+      autoUpgrade: true
+      drain:
+        enable: true
+        force: true
+        deleteEmptyDir: true
+        timeoutSeconds: 300
+        podSelector: ''
+      maxParallelUpgrades: 2

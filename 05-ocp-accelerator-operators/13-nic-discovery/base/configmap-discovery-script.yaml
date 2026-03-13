@@ -1,0 +1,113 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nic-port-discovery-script
+  namespace: default
+data:
+  discover-nic-ports.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    echo "=== NIC Discovery Script (InfiniBand & RoCE) ==="
+    echo "Discovering Mellanox/NVIDIA network adapters..."
+
+    echo "Waiting 30 seconds for SR-IOV links to stabilize..."
+    sleep 30
+
+    OUTPUT_FILE="/discovery/ports.json"
+
+    echo "[" > "$OUTPUT_FILE"
+
+    FIRST_ENTRY=true
+
+    for pci_addr in $(lspci -D -d 15b3: | grep -i 'network\|ethernet\|infiniband' | awk '{print $1}'); do
+      echo "Found device at PCI address: $pci_addr"
+
+      device_id=$(lspci -n -s "$pci_addr" | awk '{print $3}' | cut -d':' -f2)
+      device_name=$(lspci -s "$pci_addr" | cut -d':' -f3- | xargs)
+
+      net_path="/sys/bus/pci/devices/$pci_addr/net"
+
+      if [ -d "$net_path" ]; then
+        for iface in "$net_path"/*; do
+          if [ -d "$iface" ]; then
+            ifname=$(basename "$iface")
+            echo "  Network Interface: $ifname"
+
+            sriov_capable=false
+            sriov_totalvfs=0
+            if [ -f "/sys/class/net/$ifname/device/sriov_numvfs" ]; then
+              sriov_capable=true
+              sriov_totalvfs=$(cat "/sys/class/net/$ifname/device/sriov_totalvfs" 2>/dev/null || echo "0")
+            fi
+
+            rdma_device=""
+            link_type=""
+            link_type_detected=false
+
+            if [ -d "/sys/class/net/$ifname/device/infiniband" ]; then
+              rdma_device=$(ls "/sys/class/net/$ifname/device/infiniband" | head -1)
+
+              for port_dir in "/sys/class/infiniband/$rdma_device/ports"/*; do
+                if [ -d "$port_dir" ] && [ -f "$port_dir/link_layer" ]; then
+                  detected_link_layer=$(cat "$port_dir/link_layer" 2>/dev/null || echo "")
+
+                  if [ "$detected_link_layer" = "InfiniBand" ]; then
+                    link_type="ib"
+                    link_type_detected=true
+                  elif [ "$detected_link_layer" = "Ethernet" ]; then
+                    link_type="eth"
+                    link_type_detected=true
+                  fi
+                  break
+                fi
+              done
+            fi
+
+            if [ "$link_type_detected" = false ]; then
+              if [[ "$ifname" =~ ^ib ]]; then
+                link_type="ib"
+              else
+                link_type="eth"
+              fi
+            fi
+
+            link_status=$(cat "/sys/class/net/$ifname/operstate" 2>/dev/null || echo "unknown")
+            carrier=$(cat "/sys/class/net/$ifname/carrier" 2>/dev/null || echo "0")
+            mac_addr=$(cat "/sys/class/net/$ifname/address" 2>/dev/null || echo "unknown")
+
+            if [ "$FIRST_ENTRY" = false ]; then
+              echo "," >> "$OUTPUT_FILE"
+            fi
+            FIRST_ENTRY=false
+
+            printf '  {\n' >> "$OUTPUT_FILE"
+            printf '    "pciAddress": "%s",\n' "$pci_addr" >> "$OUTPUT_FILE"
+            printf '    "deviceID": "%s",\n' "$device_id" >> "$OUTPUT_FILE"
+            printf '    "deviceName": "%s",\n' "$device_name" >> "$OUTPUT_FILE"
+            printf '    "pfName": "%s",\n' "$ifname" >> "$OUTPUT_FILE"
+            printf '    "sriovCapable": %s,\n' "$sriov_capable" >> "$OUTPUT_FILE"
+            printf '    "sriovTotalVfs": %s,\n' "$sriov_totalvfs" >> "$OUTPUT_FILE"
+            printf '    "rdmaDevice": "%s",\n' "$rdma_device" >> "$OUTPUT_FILE"
+            printf '    "linkType": "%s",\n' "$link_type" >> "$OUTPUT_FILE"
+            printf '    "linkStatus": "%s",\n' "$link_status" >> "$OUTPUT_FILE"
+            printf '    "carrier": "%s",\n' "$carrier" >> "$OUTPUT_FILE"
+            printf '    "macAddress": "%s",\n' "$mac_addr" >> "$OUTPUT_FILE"
+            printf '    "vendor": "15b3"\n' >> "$OUTPUT_FILE"
+            printf '  }\n' >> "$OUTPUT_FILE"
+          fi
+        done
+      fi
+    done
+
+    echo "" >> "$OUTPUT_FILE"
+    echo "]" >> "$OUTPUT_FILE"
+
+    echo "=== Discovery Complete ==="
+    cat "$OUTPUT_FILE"
+
+    if [ -n "${NODE_NAME:-}" ]; then
+      NODE_OUTPUT="/discovery/${NODE_NAME}-ports.json"
+      cp "$OUTPUT_FILE" "$NODE_OUTPUT"
+      echo "Also saved to $NODE_OUTPUT"
+    fi

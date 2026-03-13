@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# IBM Cloud overlay
+# Uses host-device CNI + NADs for RDMA networking (no SR-IOV operator).
+# IBM Cloud VMs have VFs from the hypervisor, so SR-IOV operator is not needed.
+
+namespace: openshift-gitops
+
+resources:
+  - ../../apps/01-operators-nfd-gpu
+  - ../../apps/02-nfd-operands
+  - ../../apps/14-nvidia-network-operator-ibm-cloud
+  - ../../apps/15-ibm-cloud-networking
+  - ../../apps/20-operators-gpu-readiness
+  - ../../apps/21-gpu-operands

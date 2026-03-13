@@ -1,0 +1,83 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nic-resource-generator
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nic-resource-generator
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/exec", "pods/log"]
+    verbs: ["get", "list", "create", "delete", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["get", "list", "delete"]
+  - apiGroups: ["sriovnetwork.openshift.io"]
+    resources: ["sriovnetworks", "sriovibnetworks", "sriovnetworknodepolicies"]
+    verbs: ["get", "list", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nic-resource-generator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nic-resource-generator
+subjects:
+  - kind: ServiceAccount
+    name: nic-resource-generator
+    namespace: default
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nic-resource-generator
+  namespace: default
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: nic-resource-generator
+    spec:
+      serviceAccountName: nic-resource-generator
+      restartPolicy: OnFailure
+      containers:
+        - name: generator
+          image: registry.redhat.io/openshift4/ose-cli:latest
+          command:
+            - /bin/bash
+            - /scripts/generate-nic-resources.sh
+          env:
+            - name: MTU
+              value: "9000"
+            - name: IP_RANGE_BASE
+              value: "10.0"
+            - name: NETWORK_NAMESPACE
+              value: "default"
+            - name: ROUTE_DEST
+              value: "192.168.75.0/24"
+            - name: SUBNET_MODE
+              value: "separate"
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+      volumes:
+        - name: scripts
+          configMap:
+            name: nic-resource-generator-script
+            defaultMode: 0755
