@@ -15,11 +15,11 @@ spec:
       name: ''
       resources:
         limits:
-          cpu: '1'
+          cpu: '4'
           memory: 8Gi
           nvidia.com/gpu: '1'
         requests:
-          cpu: '1'
+          cpu: '4'
           memory: 8Gi
           nvidia.com/gpu: '1'
       runtime: vllm-runtime
