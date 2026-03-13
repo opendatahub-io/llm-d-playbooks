@@ -4,6 +4,10 @@ Install and configure GPU, RDMA, and networking operators on OpenShift Container
 
 This chapter covers NFD (Node Feature Discovery), NVIDIA GPU Operator, NVIDIA Network Operator, and SR-IOV / host-device networking depending on platform. These operators are required on OCP but not on managed Kubernetes platforms (AKS, CKS).
 
+## Credits
+
+The operator manifests and automation in this chapter are adapted from [Infrabric-deployer](https://github.com/bbenshab/Infrabric-deployer) by [@bbenshab](https://github.com/bbenshab). The IBM Cloud networking configuration is based on the [PSAP Guide to RoCE on OCP for llm-d](https://docs.google.com/document/d/1YFnHMnb03E_0BVfMrwABMDnMFqbBBasYyXKPJqJnXV4).
+
 ## Prerequisites
 
 - OpenShift Container Platform >= 4.19
@@ -13,13 +17,13 @@ This chapter covers NFD (Node Feature Discovery), NVIDIA GPU Operator, NVIDIA Ne
 
 ## Platform Selection
 
-| Platform | Description | Steps |
-|----------|-------------|-------|
-| `bare-metal-ib` | Bare-metal with InfiniBand | 00, 01, 02, 11, 13, 14, 20, 21 |
-| `bare-metal-roce` | Bare-metal with RoCE (SR-IOV) | 00, 01, 02, 10, 11, 12, 13, 14, 20, 21 |
-| `ibm-cloud` | IBM Cloud VMs (host-device + NADs) | 01, 02, 14, 15, 20, 21 |
+| Platform | Description |
+|----------|-------------|
+| `bare-metal-ib` | Bare-metal with InfiniBand |
+| `bare-metal-roce` | Bare-metal with RoCE (SR-IOV) |
+| `ibm-cloud` | IBM Cloud VMs (host-device + NADs) |
 
-If you already know your platform (e.g. IBM Cloud), skip ahead to [Step 01](#step-01-operator-subscriptions). Otherwise, start with [Step 00](#step-00-discover-gpus--nics) to detect your hardware.
+Start with [Step 00](#step-00-discover-gpus--nics) to identify your hardware and determine which platform applies.
 
 ## Quick Start (automated)
 
@@ -48,13 +52,15 @@ Follow each step below in order, skipping any marked **skip** for your platform.
 
 ### Step 00: Discover GPUs & NICs
 
-| bare-metal-ib | bare-metal-roce | ibm-cloud |
-|:-:|:-:|:-:|
-| apply | apply | **skip** (you already know your platform) |
+| Platform | Action | Why |
+|----------|--------|-----|
+| bare-metal-ib | apply | Identify hardware and NUMA topology |
+| bare-metal-roce | apply | Identify hardware and NUMA topology |
+| ibm-cloud | apply | Confirms NICs are VFs, shows GPU models |
 
 Standalone script that probes cluster nodes for RDMA NICs and GPUs via sysfs -- no operators need to be installed yet. For each node it reports:
 - **GPUs**: model (H100, A100, L40S, ...), PCI address, NUMA node
-- **NICs**: interface name, link type (InfiniBand / Ethernet/RoCE), SR-IOV capability, NUMA node
+- **NICs**: interface name, link type (InfiniBand / Ethernet/RoCE), SR-IOV capability, whether the NIC is a VF (important for cloud VMs), NUMA node
 - **NUMA topology**: which GPUs and NICs share the same NUMA node (important for optimal RDMA performance)
 
 ```bash
@@ -67,8 +73,8 @@ Example output:
 --- Node: worker-0 ---
 
   NICs:
-  INTERFACE      PCI            LINK_LAYER   NUMA   SR-IOV   VFs     CARRIER    RDMA_DEV
-  ib_nic0        0000:86:00.0   InfiniBand   1      false    0       1          mlx5_0
+  INTERFACE      PCI            LINK_LAYER   NUMA   SR-IOV   VFs     IS_VF CARRIER    RDMA_DEV
+  ib_nic0        0000:86:00.0   InfiniBand   1      false    0       false 1          mlx5_0
 
   GPUs:
   PCI            DEV_ID   NUMA   MODEL
@@ -84,6 +90,7 @@ Summary
   InfiniBand detected: true
   RoCE detected:       false
   SR-IOV capable:      false
+  NICs are VFs:        false
   NVIDIA GPUs:         true
   GPU models:          H100 80GB HBM3 (SXM)
 
@@ -93,22 +100,21 @@ Recommended Platform Overlay
 
 ### Step 01: Operator Subscriptions
 
-| bare-metal-ib | bare-metal-roce | ibm-cloud |
-|:-:|:-:|:-:|
-| apply | apply | apply |
+| Platform | Action | Why |
+|----------|--------|-----|
+| bare-metal-ib | apply | Required by all subsequent steps |
+| bare-metal-roce | apply | Required by all subsequent steps |
+| ibm-cloud | apply | Required by all subsequent steps |
 
-Install three core operators via OLM: Node Feature Discovery (NFD), NVIDIA GPU Operator, and NVIDIA Network Operator. Each gets its own namespace, OperatorGroup, and Subscription.
-
-| Operator | Namespace | Source |
-|----------|-----------|--------|
-| NFD | `openshift-nfd` | `redhat-operators` |
-| GPU Operator | `nvidia-gpu-operator` | `certified-operators` |
-| Network Operator | `nvidia-network-operator` | `certified-operators` |
+Install NFD, NVIDIA GPU Operator, and NVIDIA Network Operator via OLM.
 
 ```bash
 oc apply -k 05-ocp-accelerator-operators/01-operators-nfd-gpu/base/
+```
 
-# Wait for the subscriptions to resolve
+To check:
+
+```bash
 oc get subscriptions -A | grep -E 'nfd|gpu|nvidia-network'
 oc get csv -n openshift-nfd
 oc get csv -n nvidia-gpu-operator
@@ -117,93 +123,120 @@ oc get csv -n nvidia-network-operator
 
 ### Step 02: NFD Operands
 
-| bare-metal-ib | bare-metal-roce | ibm-cloud |
-|:-:|:-:|:-:|
-| apply | apply | apply |
+| Platform | Action | Why |
+|----------|--------|-----|
+| bare-metal-ib | apply | GPU and Network operators need NFD labels |
+| bare-metal-roce | apply | GPU and Network operators need NFD labels |
+| ibm-cloud | apply | GPU and Network operators need NFD labels |
 
 Deploy `NodeFeatureDiscovery` and `NodeFeatureRule` custom resources. These label nodes with hardware features (NVIDIA GPUs via PCI vendor `10de`, Mellanox NICs via `15b3`, SR-IOV capability, RDMA modules).
 
 ```bash
 oc apply -k 05-ocp-accelerator-operators/02-nfd-operands/base/
+```
 
-# Verify labels appear on GPU nodes (may take ~60s)
+To check (labels may take ~60s to appear):
+
+```bash
 oc get nodes -l feature.node.kubernetes.io/pci-10de.present=true
 oc get nodes -l feature.node.kubernetes.io/pci-15b3.present=true
 ```
 
 ### Step 10: SR-IOV Operator
 
-| bare-metal-ib | bare-metal-roce | ibm-cloud |
-|:-:|:-:|:-:|
-| **skip** | apply | **skip** |
+| Platform | Action | Why |
+|----------|--------|-----|
+| bare-metal-ib | **skip** | IB has a netlink PAGE_SIZE bug with SR-IOV; uses RDMA shared devices instead |
+| bare-metal-roce | apply | Creates VFs on RoCE physical NICs |
+| ibm-cloud | **skip** | NICs are already VFs from the hypervisor |
 
-Install the SR-IOV Network Operator for RoCE VF management. InfiniBand devices don't use SR-IOV; they are handled by the NVIDIA Network Operator's RDMA shared device plugin.
+Install the SR-IOV Network Operator for RoCE VF management.
 
 ```bash
 oc apply -k 05-ocp-accelerator-operators/10-sriov-operator/base/
+```
 
+To check:
+
+```bash
 oc get csv -n openshift-sriov-network-operator
 oc get pods -n openshift-sriov-network-operator
 ```
 
 ### Step 11: IB Interface Normalization
 
-| bare-metal-ib | bare-metal-roce | ibm-cloud |
-|:-:|:-:|:-:|
-| apply | apply | **skip** |
+| Platform | Action | Why |
+|----------|--------|-----|
+| bare-metal-ib | apply | Consistent NIC names across nodes |
+| bare-metal-roce | apply | Consistent NIC names across nodes |
+| ibm-cloud | **skip** | Cloud NICs have stable names from the hypervisor |
 
 Generate udev rules for consistent RDMA interface naming (`ib_nic0`, `ib_nic1`, ...) via a MachineConfig. **This triggers worker node reboots.**
 
 ```bash
 oc apply -k 05-ocp-accelerator-operators/11-ib-interface-normalization/base/
+```
 
-# Watch the job
+To check:
+
+```bash
 oc logs job/generate-ib-udev-rules -n default -f
-
-# Wait for MachineConfigPool to finish (nodes will reboot)
 oc get mcp worker -w
 ```
 
 ### Step 12: SR-IOV VF Config
 
-| bare-metal-ib | bare-metal-roce | ibm-cloud |
-|:-:|:-:|:-:|
-| **skip** | apply | **skip** |
+| Platform | Action | Why |
+|----------|--------|-----|
+| bare-metal-ib | **skip** | IB doesn't use SR-IOV (see step 10) |
+| bare-metal-roce | apply | Configures VF policies from discovered hardware |
+| ibm-cloud | **skip** | NICs are already VFs from the hypervisor |
 
-Generate `SriovNetworkNodePolicy` and `SriovNetwork` resources from discovered hardware. RoCE devices get SR-IOV VF policies; InfiniBand device data is exported as a ConfigMap for step 14.
+Generate `SriovNetworkNodePolicy` and `SriovNetwork` resources from discovered hardware.
 
 ```bash
 oc apply -k 05-ocp-accelerator-operators/12-sriov-vf-config/base/
+```
 
+To check:
+
+```bash
 oc get sriovnetworknodepolicy -n openshift-sriov-network-operator
 oc get sriovnetwork -n openshift-sriov-network-operator
 ```
 
 ### Step 13: NIC Discovery
 
-| bare-metal-ib | bare-metal-roce | ibm-cloud |
-|:-:|:-:|:-:|
-| apply | apply | **skip** |
+| Platform | Action | Why |
+|----------|--------|-----|
+| bare-metal-ib | apply | Feeds NIC data to Network Operator config |
+| bare-metal-roce | apply | Feeds NIC data to Network Operator config |
+| ibm-cloud | **skip** | NIC topology is known from the cloud provider |
 
 DaemonSet that discovers RDMA-capable NICs on every node -- PCI addresses, device IDs, link type (IB vs RoCE), carrier status. Results are written to `/var/lib/nic-discovery/` on each node.
 
 ```bash
 oc apply -k 05-ocp-accelerator-operators/13-nic-discovery/base/
+```
 
+To check:
+
+```bash
 oc get pods -l app=nic-port-discovery -o wide
 
-# View discovery results from a node
 oc exec -n default $(oc get pods -l app=nic-port-discovery -o name | head -1) \
   -c pause -- cat /discovery/ports.json
 ```
 
 ### Step 14: NVIDIA Network Operator Config
 
-| bare-metal-ib | bare-metal-roce | ibm-cloud |
-|:-:|:-:|:-:|
-| apply (base) | apply (base) | apply (ibm-cloud overlay) |
+| Platform | Action | Why |
+|----------|--------|-----|
+| bare-metal-ib | apply (base) | MOFED drivers + RDMA shared device plugin |
+| bare-metal-roce | apply (base) | MOFED drivers + RDMA shared device plugin |
+| ibm-cloud | apply (ibm-cloud overlay) | MOFED drivers only (no device plugin needed) |
 
-Deploy `NicClusterPolicy` to configure MOFED drivers. The bare-metal base also auto-discovers the OFED driver version and generates RDMA shared device plugin config. IBM Cloud uses a simpler overlay with just MOFED drivers (no SR-IOV device plugin, since VMs already have VFs from the hypervisor).
+Deploy `NicClusterPolicy` to configure MOFED drivers. The bare-metal base also auto-discovers the OFED driver version and generates RDMA shared device plugin config. IBM Cloud uses a simpler overlay with just MOFED drivers (no device plugin, since VMs already have VFs from the hypervisor).
 
 ```bash
 # Bare metal
@@ -211,17 +244,22 @@ oc apply -k 05-ocp-accelerator-operators/14-nvidia-network-operator/base/
 
 # IBM Cloud
 oc apply -k 05-ocp-accelerator-operators/14-nvidia-network-operator/overlays/ibm-cloud/
+```
 
-# Verify
+To check:
+
+```bash
 oc get nicclusterpolicy
 oc get pods -n nvidia-network-operator -l nvidia.com/ofed-driver -w
 ```
 
 ### Step 15: IBM Cloud Networking
 
-| bare-metal-ib | bare-metal-roce | ibm-cloud |
-|:-:|:-:|:-:|
-| **skip** | **skip** | apply |
+| Platform | Action | Why |
+|----------|--------|-----|
+| bare-metal-ib | **skip** | Uses SR-IOV / RDMA shared devices instead |
+| bare-metal-roce | **skip** | Uses SR-IOV / RDMA shared devices instead |
+| ibm-cloud | apply | Attaches VF NICs to pods via host-device CNI |
 
 Configure secondary high-speed networking using the host-device CNI plugin. On IBM Cloud, nodes are VMs where SR-IOV is at the hypervisor level, so we attach full NIC interfaces directly to pods via NetworkAttachmentDefinitions (NADs).
 
@@ -234,49 +272,56 @@ This step applies:
 
 ```bash
 oc apply -k 05-ocp-accelerator-operators/15-ibm-cloud-networking/base/
+```
 
-# Wait for MachineConfigPool (nodes may reboot)
+To check:
+
+```bash
 oc get mcp gpu-h100 -w
-
-# Verify
 oc get ds cni-sbr-custom-plugin -n openshift-multus
 oc get net-attach-def
 ```
 
 ### Step 20: Operator Readiness
 
-| bare-metal-ib | bare-metal-roce | ibm-cloud |
-|:-:|:-:|:-:|
-| apply | apply | apply |
+| Platform | Action | Why |
+|----------|--------|-----|
+| bare-metal-ib | apply | GPU operator needs MOFED loaded first |
+| bare-metal-roce | apply | GPU operator needs MOFED loaded first |
+| ibm-cloud | apply | GPU operator needs MOFED loaded first |
 
-Readiness gate jobs that wait for the NVIDIA Network Operator and MOFED drivers to be fully ready before deploying the GPU ClusterPolicy. The GPU Operator with `rdma.enabled=true` requires MOFED to be loaded first.
+Readiness gate jobs that wait for the NVIDIA Network Operator and MOFED drivers to be fully ready before deploying the GPU ClusterPolicy.
 
 ```bash
 oc apply -k 05-ocp-accelerator-operators/20-operators-gpu-readiness/base/
+```
 
-# Watch readiness jobs
+To check:
+
+```bash
 oc logs job/wait-for-network-operator-ready -n default -f
 oc logs job/wait-for-mofed-ready -n nvidia-network-operator -f
 ```
 
 ### Step 21: GPU Operands
 
-| bare-metal-ib | bare-metal-roce | ibm-cloud |
-|:-:|:-:|:-:|
-| apply | apply | apply |
+| Platform | Action | Why |
+|----------|--------|-----|
+| bare-metal-ib | apply | Deploys GPU drivers, device plugin, monitoring |
+| bare-metal-roce | apply | Deploys GPU drivers, device plugin, monitoring |
+| ibm-cloud | apply | Deploys GPU drivers, device plugin, monitoring |
 
 Deploy the GPU Operator `ClusterPolicy`, which triggers deployment of GPU drivers, device plugin, DCGM monitoring, GDRCopy, nvidia-peermem, and container toolkit.
 
 ```bash
 oc apply -k 05-ocp-accelerator-operators/21-gpu-operands/base/
+```
 
-# Check ClusterPolicy status
+To check:
+
+```bash
 oc get clusterpolicy gpu-cluster-policy -o jsonpath='{.status.state}'
-
-# Wait for GPU operator pods
 oc get pods -n nvidia-gpu-operator -w
-
-# Verify GPU resources on nodes
 oc get nodes -o custom-columns=NAME:.metadata.name,GPU:.status.allocatable.nvidia\\.com/gpu
 ```
 
