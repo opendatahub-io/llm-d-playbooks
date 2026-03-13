@@ -1,0 +1,47 @@
+apiVersion: nfd.openshift.io/v1alpha1
+kind: NodeFeatureRule
+metadata:
+  name: hardware-discovery
+  namespace: openshift-nfd
+spec:
+  rules:
+    - name: "nvidia-gpu"
+      labels:
+        "feature.node.kubernetes.io/pci-10de.present": "true"
+      matchFeatures:
+        - feature: pci.device
+          matchExpressions:
+            vendor: {op: In, value: ["10de"]}
+
+    - name: "mellanox-nic"
+      labels:
+        "feature.node.kubernetes.io/pci-15b3.present": "true"
+      matchFeatures:
+        - feature: pci.device
+          matchExpressions:
+            vendor: {op: In, value: ["15b3"]}
+
+    - name: "sriov-capable"
+      labels:
+        "feature.node.kubernetes.io/pci-15b3.sriov.capable": "true"
+      matchFeatures:
+        - feature: pci.device
+          matchExpressions:
+            vendor: {op: In, value: ["15b3"]}
+            sriov: {op: Exists}
+
+    - name: "rdma-capable"
+      labels:
+        "feature.node.kubernetes.io/rdma.capable": "true"
+      matchFeatures:
+        - feature: network.device
+          matchExpressions:
+            rdma: {op: Exists}
+
+    - name: "rdma-available"
+      labels:
+        "feature.node.kubernetes.io/rdma.available": "true"
+      matchFeatures:
+        - feature: kernel.loadedmodule
+          matchExpressions:
+            rdma_ucm: {op: Exists}

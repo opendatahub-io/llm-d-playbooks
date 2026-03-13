@@ -1,0 +1,131 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nic-policy-updater
+  namespace: nvidia-network-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nic-policy-updater
+rules:
+- apiGroups: ["operators.coreos.com"]
+  resources: ["clusterserviceversions"]
+  verbs: ["get", "list"]
+- apiGroups: ["mellanox.com"]
+  resources: ["nicclusterpolicies"]
+  verbs: ["get", "create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nic-policy-updater
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nic-policy-updater
+subjects:
+- kind: ServiceAccount
+  name: nic-policy-updater
+  namespace: nvidia-network-operator
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: discover-ofed-version
+  namespace: nvidia-network-operator
+spec:
+  template:
+    spec:
+      serviceAccountName: nic-policy-updater
+      restartPolicy: OnFailure
+      containers:
+      - name: version-discoverer
+        image: registry.redhat.io/openshift4/ose-cli:latest
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+
+          echo "Discovering NVIDIA Network Operator default OFED version..."
+
+          timeout=60
+          while [ $timeout -gt 0 ]; do
+            CSV_NAME=$(oc get csv -n nvidia-network-operator -o name 2>/dev/null | grep nvidia-network-operator || echo "")
+            if [ -n "$CSV_NAME" ]; then
+              echo "Operator CSV found: $CSV_NAME"
+              break
+            fi
+            echo "Waiting for operator CSV... ($timeout seconds left)"
+            sleep 5
+            timeout=$((timeout - 5))
+          done
+
+          if [ -z "$CSV_NAME" ]; then
+            echo "ERROR: Could not find NVIDIA Network Operator CSV"
+            exit 1
+          fi
+
+          VERSION=$(oc get $CSV_NAME -n nvidia-network-operator -o jsonpath='{.metadata.annotations.alm-examples}' | \
+            python3 -c "import json,sys;examples=json.load(sys.stdin);print([item.get('spec',{}).get('ofedDriver',{}).get('version','') for item in examples if item.get('kind')=='NicClusterPolicy'][0])" 2>&1)
+
+          if [ -z "$VERSION" ] || [ "$VERSION" = "None" ]; then
+            echo "ERROR: Could not discover OFED version from operator CSV"
+            exit 1
+          fi
+
+          echo "Discovered OFED version: $VERSION"
+
+          EXISTING_VERSION=$(oc get nicclusterpolicy nic-cluster-policy -n nvidia-network-operator \
+            -o jsonpath='{.spec.ofedDriver.version}' 2>/dev/null || echo "")
+
+          if [ "$EXISTING_VERSION" = "$VERSION" ]; then
+            echo "NicClusterPolicy already has correct version $VERSION - skipping"
+            exit 0
+          fi
+
+          cat <<POLICY | oc apply -f -
+          apiVersion: mellanox.com/v1alpha1
+          kind: NicClusterPolicy
+          metadata:
+            name: nic-cluster-policy
+            namespace: nvidia-network-operator
+          spec:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: node-role.kubernetes.io/worker
+                    operator: Exists
+                  - key: node-role.kubernetes.io/master
+                    operator: DoesNotExist
+            ofedDriver:
+              image: doca-driver
+              repository: nvcr.io/nvidia/mellanox
+              version: $VERSION
+              env:
+                - name: UNLOAD_STORAGE_MODULES
+                  value: 'true'
+              livenessProbe:
+                initialDelaySeconds: 30
+                periodSeconds: 30
+              readinessProbe:
+                initialDelaySeconds: 10
+                periodSeconds: 30
+              startupProbe:
+                initialDelaySeconds: 10
+                periodSeconds: 20
+              terminationGracePeriodSeconds: 300
+              upgradePolicy:
+                autoUpgrade: true
+                drain:
+                  enable: true
+                  force: true
+                  deleteEmptyDir: true
+                  timeoutSeconds: 300
+                  podSelector: ''
+                maxParallelUpgrades: 2
+          POLICY
+
+          echo "NicClusterPolicy configured with OFED version: $VERSION"

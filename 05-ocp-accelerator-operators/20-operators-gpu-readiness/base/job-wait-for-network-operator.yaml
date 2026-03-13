@@ -1,0 +1,118 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: network-operator-waiter
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: network-operator-waiter
+rules:
+  - apiGroups:
+      - operators.coreos.com
+    resources:
+      - clusterserviceversions
+      - subscriptions
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - get
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: network-operator-waiter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: network-operator-waiter
+subjects:
+  - kind: ServiceAccount
+    name: network-operator-waiter
+    namespace: default
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wait-for-network-operator-ready
+  namespace: default
+spec:
+  backoffLimit: 50
+  template:
+    metadata:
+      labels:
+        app: network-operator-waiter
+    spec:
+      serviceAccountName: network-operator-waiter
+      restartPolicy: OnFailure
+      containers:
+        - name: wait-for-operator
+          image: registry.redhat.io/openshift4/ose-cli:latest
+          command:
+            - /bin/bash
+            - -c
+            - |
+              #!/bin/bash
+              set -euo pipefail
+
+              echo "=========================================="
+              echo "Waiting for NVIDIA Network Operator to be Ready"
+              echo "=========================================="
+              echo ""
+
+              MAX_WAIT_TIME=1800
+              CHECK_INTERVAL=10
+              elapsed=0
+
+              while [ $elapsed -lt $MAX_WAIT_TIME ]; do
+                echo "[$(date +%H:%M:%S)] Checking NVIDIA Network Operator status..."
+
+                if ! oc get subscription.operators.coreos.com nvidia-network-operator -n nvidia-network-operator &>/dev/null; then
+                  echo "  Subscription not found yet, waiting..."
+                  sleep $CHECK_INTERVAL
+                  elapsed=$((elapsed + CHECK_INTERVAL))
+                  continue
+                fi
+
+                current_csv=$(oc get subscription.operators.coreos.com nvidia-network-operator -n nvidia-network-operator -o jsonpath='{.status.currentCSV}' 2>/dev/null || echo "")
+
+                if [ -n "$current_csv" ]; then
+                  if oc get csv "$current_csv" -n nvidia-network-operator &>/dev/null; then
+                    csv_phase=$(oc get csv "$current_csv" -n nvidia-network-operator -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+
+                    if [ "$csv_phase" = "Succeeded" ]; then
+                      if oc get deployment nvidia-network-operator-controller-manager -n nvidia-network-operator &>/dev/null; then
+                        ready_replicas=$(oc get deployment nvidia-network-operator-controller-manager -n nvidia-network-operator -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+                        desired_replicas=$(oc get deployment nvidia-network-operator-controller-manager -n nvidia-network-operator -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
+
+                        if [ "$ready_replicas" -ge "$desired_replicas" ] && [ "$ready_replicas" -gt 0 ]; then
+                          echo ""
+                          echo "=========================================="
+                          echo "NVIDIA Network Operator is Ready!"
+                          echo "=========================================="
+                          exit 0
+                        fi
+                      fi
+                    elif [ "$csv_phase" = "Failed" ]; then
+                      echo "  ERROR: CSV is in Failed state"
+                      echo "  Check: oc describe csv $current_csv -n nvidia-network-operator"
+                      exit 1
+                    fi
+                  fi
+                fi
+
+                sleep $CHECK_INTERVAL
+                elapsed=$((elapsed + CHECK_INTERVAL))
+              done
+
+              echo "TIMEOUT: NVIDIA Network Operator did not become ready within ${MAX_WAIT_TIME}s"
+              exit 1

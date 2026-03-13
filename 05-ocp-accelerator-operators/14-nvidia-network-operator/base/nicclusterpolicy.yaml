@@ -1,0 +1,22 @@
+apiVersion: mellanox.com/v1alpha1
+kind: NicClusterPolicy
+metadata:
+  name: nic-cluster-policy
+  namespace: nvidia-network-operator
+spec:
+  tolerations:
+  - key: "UpdateInProgress"
+    operator: "Exists"
+    effect: "PreferNoSchedule"
+  - key: "nvidia.com/gpu"
+    operator: "Exists"
+    effect: "NoSchedule"
+
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: node-role.kubernetes.io/worker
+          operator: Exists
+        - key: node-role.kubernetes.io/master
+          operator: DoesNotExist

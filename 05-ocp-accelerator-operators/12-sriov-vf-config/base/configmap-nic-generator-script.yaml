@@ -1,0 +1,189 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nic-resource-generator-script
+  namespace: default
+data:
+  generate_nic_resources.py: |
+    import json
+    import sys
+    import os
+    import glob
+    import subprocess
+    from collections import defaultdict
+
+    discovery_dir = os.getenv('DISCOVERY_DIR', '/discovery')
+    output_dir = os.getenv('OUTPUT_DIR', '/output')
+    mtu = int(os.getenv('MTU', '9000'))
+    ip_range_base = os.getenv('IP_RANGE_BASE', '10.0')
+    network_namespace = os.getenv('NETWORK_NAMESPACE', 'default')
+    route_dest_base = os.getenv('ROUTE_DEST', '192.168.75.0/24')
+    subnet_mode = os.getenv('SUBNET_MODE', 'separate').lower()
+
+    print("\n=== Processing NIC Discovery Results ===")
+
+    all_ports = []
+    node_ports = defaultdict(list)
+    node_count = 0
+
+    for discovery_file in glob.glob(f"{discovery_dir}/*-ports.json"):
+        node_name = os.path.basename(discovery_file).replace('-ports.json', '')
+        node_count += 1
+
+        try:
+            with open(discovery_file, 'r') as f:
+                ports = json.load(f)
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"  WARNING: Skipping {node_name} - corrupted JSON: {e}")
+            continue
+
+        for port in ports:
+            port['_node_name'] = node_name
+            port['totalvfs'] = port.get('sriovTotalVfs', port.get('totalvfs', 0))
+            all_ports.append(port)
+
+    print(f"\nTotal ports discovered: {len(all_ports)} across {node_count} nodes")
+
+    roce_ports = []
+    ib_ports = []
+
+    for port in all_ports:
+        link_type = port.get('linkType', 'eth').lower()
+        if link_type == 'ib':
+            ib_ports.append(port)
+        else:
+            roce_ports.append(port)
+
+    print(f"\nSeparated by link type:")
+    print(f"  RoCE ports (for SR-IOV): {len(roce_ports)}")
+    print(f"  InfiniBand ports (for NVIDIA Network Operator): {len(ib_ports)}")
+
+    ib_export_file = f"{output_dir}/ib-devices.json"
+    with open(ib_export_file, 'w') as f:
+        json.dump(ib_ports, f, indent=2)
+
+    roce_ports_with_carrier = [
+        p for p in roce_ports
+        if p.get('sriovCapable') and p.get('carrier') == '1'
+    ]
+
+    if not roce_ports_with_carrier:
+        print("\nNo RoCE ports with SR-IOV + carrier found - skipping SR-IOV config")
+        with open(f"{output_dir}/.empty", 'w') as f:
+            f.write("No RoCE devices with SR-IOV - IB only\n")
+        sys.exit(0)
+
+    all_ports = roce_ports_with_carrier
+    node_ports = defaultdict(list)
+    for port in all_ports:
+        node_ports[port['_node_name']].append(port)
+
+    print("\n=== Generating SriovNetworkNodePolicy Resources ===")
+
+    policy_index = 0
+    for port in sorted(all_ports, key=lambda x: (x.get('_node_name', ''), x.get('pfName', ''))):
+        node_name = port.get('_node_name', 'unknown')
+        pf_name = port['pfName']
+        vf_count = port.get('totalvfs', 0)
+        link_type = port.get('linkType', 'eth').lower()
+
+        link_suffix = 'ib' if link_type == 'ib' else 'roce'
+        resource_name = f"{pf_name}_{link_suffix}"
+
+        policy_lines = [
+            "---",
+            "apiVersion: sriovnetwork.openshift.io/v1",
+            "kind: SriovNetworkNodePolicy",
+            "metadata:",
+            f"  name: policy-{node_name}-{pf_name}".replace('_', '-'),
+            "  namespace: openshift-sriov-network-operator",
+            "spec:",
+            "  nodeSelector:",
+            f"    kubernetes.io/hostname: \"{node_name}\"",
+            f"  resourceName: {resource_name}",
+            f"  priority: {99 - policy_index}",
+            f"  numVfs: {vf_count}",
+            "  nicSelector:",
+            "    pfNames:",
+            f"      - {pf_name}",
+            "  deviceType: netdevice",
+            "  isRdma: true",
+            f"  linkType: {link_type}",
+            "  excludeTopology: false",
+        ]
+
+        policy_file = f"{output_dir}/sriovnetworknodepolicy-{node_name}-{pf_name}.yaml".replace('_', '-')
+        with open(policy_file, 'w') as f:
+            f.write('\n'.join(policy_lines))
+
+        policy_index += 1
+
+    print(f"\nTotal SriovNetworkNodePolicy resources: {len(all_ports)}")
+    print("=== SR-IOV Resource generation complete! ===")
+
+  generate-nic-resources.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    echo "=== NIC Resource Generator ==="
+
+    DISCOVERY_DIR="/discovery"
+    OUTPUT_DIR="/output"
+    mkdir -p "$DISCOVERY_DIR" "$OUTPUT_DIR"
+
+    MTU=${MTU:-9000}
+    IP_RANGE_BASE=${IP_RANGE_BASE:-"10.0"}
+    NETWORK_NAMESPACE=${NETWORK_NAMESPACE:-"default"}
+    ROUTE_DEST=${ROUTE_DEST:-"192.168.75.0/24"}
+    SUBNET_MODE=${SUBNET_MODE:-"separate"}
+
+    echo "Collecting discovery files from nodes..."
+
+    WORKER_NODES=$(oc get nodes -l feature.node.kubernetes.io/pci-15b3.present=true -o jsonpath='{.items[*].metadata.name}')
+
+    if [ -z "$WORKER_NODES" ]; then
+      echo "Error: No worker nodes with Mellanox NICs found"
+      exit 1
+    fi
+
+    for node in $WORKER_NODES; do
+      echo "Collecting from node: $node"
+
+      DISCOVERY_FILE="${DISCOVERY_DIR}/${node}-ports.json"
+      TEMP_FILE=$(mktemp)
+      oc debug node/"$node" --image=registry.access.redhat.com/ubi9/ubi-minimal:latest -- \
+        chroot /host cat "/var/lib/nic-discovery/${node}-ports.json" > "$TEMP_FILE" 2>&1
+
+      grep -v "^Starting pod" "$TEMP_FILE" | \
+        grep -v "^To use host binaries" | \
+        grep -v "^Removing debug pod" | \
+        grep -v "^E[0-9]" > "$DISCOVERY_FILE"
+
+      rm -f "$TEMP_FILE"
+    done
+
+    export DISCOVERY_DIR OUTPUT_DIR MTU IP_RANGE_BASE NETWORK_NAMESPACE ROUTE_DEST SUBNET_MODE
+    python3 /scripts/generate_nic_resources.py
+
+    echo ""
+    echo "=== Exporting IB Devices for NVIDIA Network Operator ==="
+
+    if [ -f "$OUTPUT_DIR/ib-devices.json" ]; then
+      oc create configmap generated-sriov-resources \
+        --from-file=ib-devices.json="$OUTPUT_DIR/ib-devices.json" \
+        -n default \
+        --dry-run=client -o yaml | oc apply -f -
+    fi
+
+    echo ""
+    echo "=== Applying generated resources ==="
+
+    for yaml_file in "$OUTPUT_DIR"/*.yaml; do
+      if [ -f "$yaml_file" ]; then
+        oc apply -f "$yaml_file" && echo "Applied: $(basename "$yaml_file")"
+      fi
+    done
+
+    echo ""
+    echo "=== Cleanup Discovery Resources ==="
+    oc delete daemonset nic-port-discovery -n default --ignore-not-found=true

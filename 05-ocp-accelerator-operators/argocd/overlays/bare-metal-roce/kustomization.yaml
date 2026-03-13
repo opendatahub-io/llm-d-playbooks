@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Bare-metal RoCE overlay
+# Includes SR-IOV operator and VF config for RoCE devices
+# Also handles mixed IB+RoCE environments
+
+namespace: openshift-gitops
+
+resources:
+  - ../../apps/01-operators-nfd-gpu
+  - ../../apps/02-nfd-operands
+  - ../../apps/10-sriov-operator
+  - ../../apps/11-ib-interface-normalization
+  - ../../apps/13-nic-discovery
+  - ../../apps/14-nvidia-network-operator
+  - ../../apps/20-operators-gpu-readiness
+  - ../../apps/21-gpu-operands

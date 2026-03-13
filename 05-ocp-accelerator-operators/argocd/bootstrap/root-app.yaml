@@ -1,0 +1,44 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ocp-accelerator-operators
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/managed-by: llm-d-playbooks
+  annotations:
+    argocd.argoproj.io/cascade: "foreground"
+spec:
+  destination:
+    namespace: openshift-gitops
+    server: "https://kubernetes.default.svc"
+  source:
+    # UPDATE: Set this to your fork's URL and the appropriate overlay path
+    repoURL: https://github.com/llm-d/llm-d-playbooks.git
+    targetRevision: main
+    # Choose the overlay that matches your hardware:
+    #   bare-metal-ib   - InfiniBand clusters
+    #   bare-metal-roce - RoCE clusters (or mixed IB+RoCE)
+    #   ibm-cloud       - IBM Cloud (GPU only, no RDMA)
+    path: 05-ocp-accelerator-operators/argocd/overlays/bare-metal-roce
+    kustomize:
+      patches:
+        - target:
+            kind: Application
+            group: argoproj.io
+            version: v1alpha1
+            labelSelector: app.kubernetes.io/managed-by=llm-d-playbooks
+          patch: |-
+            - op: replace
+              path: /spec/source/repoURL
+              value: https://github.com/llm-d/llm-d-playbooks.git
+  project: default
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        maxDuration: 10m0s
+        factor: 2

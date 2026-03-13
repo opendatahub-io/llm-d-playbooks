@@ -1,0 +1,228 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rdma-config-generator
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rdma-config-generator
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update", "patch"]
+  - apiGroups: ["mellanox.com"]
+    resources: ["nicclusterpolicies"]
+    verbs: ["get", "list", "patch", "update"]
+  - apiGroups: ["k8s.cni.cncf.io"]
+    resources: ["network-attachment-definitions"]
+    verbs: ["get", "list", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: rdma-config-generator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rdma-config-generator
+subjects:
+  - kind: ServiceAccount
+    name: rdma-config-generator
+    namespace: default
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rdma-config-generator-script
+  namespace: default
+data:
+  generate-rdma-config.py: |
+    #!/usr/bin/env python3
+    import json
+    import sys
+    import os
+    import subprocess
+    from collections import defaultdict
+
+    print("\n=== NVIDIA Network Operator RDMA Configuration Generator ===")
+    print("\nMode: Pure RDMA (no IP networking)")
+
+    ib_devices_file = "/discovery/ib-devices.json"
+
+    if not os.path.exists(ib_devices_file):
+        print("\nNo InfiniBand devices detected - configuring MOFED drivers only")
+        sys.exit(0)
+
+    with open(ib_devices_file, 'r') as f:
+        ib_devices = json.load(f)
+
+    if not ib_devices:
+        print("\nIB devices file is empty - configuring MOFED drivers only")
+        sys.exit(0)
+
+    print(f"\nFound {len(ib_devices)} InfiniBand devices")
+
+    devices_by_ifname_all = defaultdict(list)
+    for device in ib_devices:
+        pf_name = device['pfName']
+        devices_by_ifname_all[pf_name].append(device)
+
+    print(f"\nChecking carrier status consistency across nodes...")
+
+    fully_connected_nics = []
+    for if_name, devices in sorted(devices_by_ifname_all.items()):
+        total_nodes = len(devices)
+        nodes_with_carrier = [d for d in devices if d.get('carrier') == '1']
+        carrier_count = len(nodes_with_carrier)
+
+        if carrier_count == total_nodes:
+            fully_connected_nics.extend(devices)
+            print(f"  {if_name}: {carrier_count}/{total_nodes} nodes connected - INCLUDED")
+        elif carrier_count > 0:
+            print(f"  {if_name}: {carrier_count}/{total_nodes} nodes connected - SKIPPED (partial)")
+        else:
+            print(f"  {if_name}: 0/{total_nodes} nodes connected - SKIPPED (down)")
+
+    if not fully_connected_nics:
+        print("\nNo fully connected InfiniBand NICs found - skipping RDMA configuration")
+        sys.exit(0)
+
+    ib_devices = fully_connected_nics
+
+    devices_by_ifname = defaultdict(list)
+    for device in ib_devices:
+        pf_name = device['pfName']
+        devices_by_ifname[pf_name].append(device)
+
+    config_list = []
+
+    for if_name in sorted(devices_by_ifname.keys()):
+        devices = devices_by_ifname[if_name]
+        device_ids = set()
+
+        for device in devices:
+            device_ids.add(device.get('deviceID', '1021'))
+
+        if if_name.startswith('ib_nic'):
+            nic_number = if_name.replace('ib_nic', '')
+            resource_name = f"rdma_shared_nic{nic_number}"
+        else:
+            resource_name = f"rdma_shared_{if_name}"
+
+        config_entry = {
+            "resourceName": resource_name,
+            "rdmaHcaMax": 1000,
+            "selectors": {
+                "vendors": ["15b3"],
+                "deviceIDs": list(device_ids),
+                "ifNames": [if_name]
+            }
+        }
+
+        config_list.append(config_entry)
+
+    rdma_config_json = json.dumps({"configList": config_list}, indent=2)
+
+    print(f"\n=== Patching NicClusterPolicy ===")
+
+    patch = {
+        "spec": {
+            "rdmaSharedDevicePlugin": {
+                "image": "k8s-rdma-shared-dev-plugin",
+                "repository": "nvcr.io/nvidia/cloud-native",
+                "version": "v1.5.2",
+                "config": rdma_config_json
+            }
+        }
+    }
+
+    patch_json = json.dumps(patch)
+
+    cmd = [
+        "oc", "patch", "nicclusterpolicy", "nic-cluster-policy",
+        "-n", "nvidia-network-operator",
+        "--type=merge",
+        "-p", patch_json
+    ]
+
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+
+    if result.returncode == 0:
+        print("NicClusterPolicy patched successfully")
+        for entry in config_list:
+            if_name = entry['selectors']['ifNames'][0]
+            print(f"  - rdma/{entry['resourceName']} ({if_name}): 1000 per NIC")
+    else:
+        print(f"Failed to patch NicClusterPolicy: {result.stderr}")
+        sys.exit(1)
+
+    print(f"\n=== RDMA Configuration Complete ===")
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: generate-rdma-config
+  namespace: default
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: rdma-config-generator
+    spec:
+      serviceAccountName: rdma-config-generator
+      restartPolicy: OnFailure
+      containers:
+        - name: generator
+          image: registry.redhat.io/openshift4/ose-cli:latest
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+
+              echo "=== RDMA Configuration Generator for NVIDIA Network Operator ==="
+
+              echo "Waiting for NIC discovery to complete..."
+              timeout=600
+              elapsed=0
+              interval=10
+
+              while [ $elapsed -lt $timeout ]; do
+                if oc get configmap generated-sriov-resources -n default &>/dev/null; then
+                  echo "NIC discovery completed"
+                  break
+                fi
+                echo "Waiting for NIC discovery... (${elapsed}s elapsed)"
+                sleep $interval
+                elapsed=$((elapsed + interval))
+              done
+
+              mkdir -p /discovery
+              if oc get configmap generated-sriov-resources -n default -o jsonpath='{.data.ib-devices\.json}' > /discovery/ib-devices.json 2>/dev/null; then
+                echo "Retrieved IB devices from discovery"
+              else
+                echo "No IB devices found in discovery output"
+              fi
+
+              if ! command -v python3 &> /dev/null; then
+                echo "Installing Python..."
+                microdnf install -y python3
+              fi
+
+              python3 /scripts/generate-rdma-config.py
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+            - name: discovery
+              mountPath: /discovery
+      volumes:
+        - name: script
+          configMap:
+            name: rdma-config-generator-script
+            defaultMode: 0755
+        - name: discovery
+          emptyDir: {}

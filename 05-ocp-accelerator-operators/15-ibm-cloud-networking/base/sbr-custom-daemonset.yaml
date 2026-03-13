@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cni-sbr-custom-plugin
+  namespace: openshift-multus
+  labels:
+    app: cni-sbr-custom-plugin
+spec:
+  selector:
+    matchLabels:
+      app: cni-sbr-custom-plugin
+  template:
+    metadata:
+      labels:
+        app: cni-sbr-custom-plugin
+    spec:
+      hostNetwork: true
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+      - operator: Exists
+      priorityClassName: system-node-critical
+      serviceAccountName: multus
+      containers:
+      - name: install-cni
+        image: quay.io/dagray/cni-sbr-custom:latest
+        imagePullPolicy: Always
+        command: ["/bin/sh"]
+        args:
+        - -c
+        - |
+          set -e
+          echo "Installing custom SBR CNI plugin as sbr-custom..."
+          cp /opt/cni/bin/sbr-custom /host/opt/cni/bin/
+          echo "Custom SBR CNI plugin (sbr-custom) installed successfully"
+          sleep infinity
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: cni-bin
+          mountPath: /host/opt/cni/bin
+      volumes:
+      - name: cni-bin
+        hostPath:
+          path: /var/lib/cni/bin
+          type: DirectoryOrCreate

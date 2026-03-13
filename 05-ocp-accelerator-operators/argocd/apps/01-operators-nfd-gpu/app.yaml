@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: operators-nfd-gpu
+  namespace: openshift-gitops
+  labels:
+    app.kubernetes.io/managed-by: llm-d-playbooks
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  destination:
+    server: "https://kubernetes.default.svc"
+  source:
+    # UPDATE: Set this to your fork's URL
+    repoURL: https://github.com/llm-d/llm-d-playbooks.git
+    targetRevision: main
+    path: 05-ocp-accelerator-operators/01-operators-nfd-gpu/base
+  project: default
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 8
+      backoff:
+        duration: 5s
+        maxDuration: 5m0s
+        factor: 2

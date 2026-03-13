@@ -1,0 +1,96 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: node-prep-automation
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: node-prep-automation
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: node-prep-automation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: node-prep-automation
+subjects:
+- kind: ServiceAccount
+  name: node-prep-automation
+  namespace: default
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: prepare-nodes
+  namespace: default
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      serviceAccountName: node-prep-automation
+      restartPolicy: OnFailure
+      containers:
+      - name: node-labeler-tainter
+        image: registry.redhat.io/openshift4/ose-cli:latest
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+
+          echo "=== Node Preparation ==="
+
+          ALL_WORKERS=$(oc get nodes -l node-role.kubernetes.io/worker -o jsonpath='{.items[*].metadata.name}')
+          MASTERS=$(oc get nodes -l node-role.kubernetes.io/master -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
+          CONTROL_PLANES=$(oc get nodes -l node-role.kubernetes.io/control-plane -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
+
+          WORKERS=""
+          for node in $ALL_WORKERS; do
+            is_master=false
+            for master in $MASTERS $CONTROL_PLANES; do
+              if [ "$node" = "$master" ]; then
+                is_master=true
+                break
+              fi
+            done
+            if [ "$is_master" = false ]; then
+              WORKERS="$WORKERS $node"
+            fi
+          done
+
+          if [ -z "$WORKERS" ]; then
+            echo "WARNING: No worker-only nodes found!"
+          else
+            for node in $WORKERS; do
+              echo "  Labeling $node"
+              oc label node $node fab-rig-deployer=true --overwrite
+            done
+            echo "Worker nodes labeled"
+          fi
+
+          echo ""
+          echo "Configuring master/control-plane nodes..."
+          MASTERS=$(oc get nodes -l node-role.kubernetes.io/master -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || \
+                    oc get nodes -l node-role.kubernetes.io/control-plane -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
+
+          if [ -n "$MASTERS" ]; then
+            for node in $MASTERS; do
+              echo "  $node: Disabling GPU operands and MOFED driver"
+              oc label node $node nvidia.com/gpu.deploy.operands=false --overwrite
+              oc label node $node network.nvidia.com/operator.mofed.wait=false --overwrite
+              oc label node $node network.nvidia.com/operator.nic-configuration.wait=false --overwrite
+            done
+          fi
+
+          echo ""
+          echo "=== Node Preparation Complete ==="
