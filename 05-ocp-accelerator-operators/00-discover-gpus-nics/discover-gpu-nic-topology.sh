@@ -6,7 +6,7 @@
 # to help select the right platform overlay.
 #
 # Usage:
-#   ./discover-nic-ports.sh
+#   ./discover-gpu-nic-topology.sh
 #
 # Requires: oc CLI with cluster-admin access
 #
@@ -18,70 +18,72 @@ set -euo pipefail
 PROBE_DIR="/tmp/gpu-nic-probe"
 mkdir -p "$PROBE_DIR"
 
-# Known NVIDIA GPU PCI device IDs → model names
+# PCI device ID → GPU model name lookup (portable, no associative arrays).
 # Source: https://github.com/pciutils/pciids  (pci.ids)
-# Add entries as needed for your hardware
-declare -A GPU_MODELS=(
-  # Hopper (GH100) — H100 / H200 / H800
-  ["2302"]="GH100"
-  ["230c"]="H20 NVL16"
-  ["230e"]="H20 NVL16"
-  ["2313"]="H100 CNX"
-  ["2321"]="H100L 94GB"
-  ["2322"]="H800 PCIe"
-  ["2324"]="H800"
-  ["2328"]="H20B"
-  ["2329"]="H20"
-  ["232c"]="H20 HBM3e"
-  ["2330"]="H100 SXM5 80GB"
-  ["2331"]="H100 PCIe"
-  ["2335"]="H200 SXM 141GB"
-  ["2336"]="H100"
-  ["2337"]="H100 SXM5 64GB"
-  ["2338"]="H100 SXM5 96GB"
-  ["2339"]="H100 SXM5 94GB"
-  ["233a"]="H800L 94GB"
-  ["233b"]="H200 NVL"
-  ["233d"]="H100 96GB"
-  ["2342"]="GH200 120GB/480GB"
-  ["2348"]="GH200 144GB HBM3e"
-  ["237e"]="H100 GH3"
-  # Blackwell (GB100/GB102/GB110)
-  ["2901"]="B200"
-  ["2920"]="B100"
-  ["2941"]="HGX GB200"
-  ["29bc"]="B100"
-  ["3182"]="B300 SXM6"
-  ["31a1"]="GB300 MaxQ"
-  ["31c2"]="GB300"
-  # Ada Lovelace (AD102/AD104) — data center
-  ["26b5"]="L40"
-  ["26b8"]="L40G"
-  ["26b9"]="L40S"
-  ["26f5"]="L40 CNX"
-  ["27b8"]="L4"
-  # Ampere (GA100)
-  ["20b0"]="A100 SXM4 40GB"
-  ["20b1"]="A100 PCIe 40GB"
-  ["20b2"]="A100 SXM4 80GB"
-  ["20b3"]="A100 SXM 64GB"
-  ["20b5"]="A100 PCIe 80GB"
-  ["20b7"]="A30 PCIe"
-  ["20b8"]="A100X"
-  ["20b9"]="A30X"
-  ["20bd"]="A800 SXM4 40GB"
-  ["20f0"]="A100 PG506-207"
-  ["20f1"]="A100 PCIe 40GB"
-  ["20f3"]="A800 SXM4 80GB"
-  ["20f5"]="A800 80GB PCIe"
-  # Volta / Turing
-  ["1db1"]="V100 SXM2 32GB"
-  ["1db4"]="V100 PCIe 16GB"
-  ["1db5"]="V100 PCIe 32GB"
-  ["1db6"]="V100 SXM2 16GB"
-  ["1df6"]="V100 FHHL"
-  ["1eb8"]="T4"
-)
+gpu_model_lookup() {
+  case "$1" in
+    # Hopper (GH100) — H100 / H200 / H800
+    2302) echo "GH100" ;;
+    230c) echo "H20 NVL16" ;;
+    230e) echo "H20 NVL16" ;;
+    2313) echo "H100 CNX" ;;
+    2321) echo "H100L 94GB" ;;
+    2322) echo "H800 PCIe" ;;
+    2324) echo "H800" ;;
+    2328) echo "H20B" ;;
+    2329) echo "H20" ;;
+    232c) echo "H20 HBM3e" ;;
+    2330) echo "H100 SXM5 80GB" ;;
+    2331) echo "H100 PCIe" ;;
+    2335) echo "H200 SXM 141GB" ;;
+    2336) echo "H100" ;;
+    2337) echo "H100 SXM5 64GB" ;;
+    2338) echo "H100 SXM5 96GB" ;;
+    2339) echo "H100 SXM5 94GB" ;;
+    233a) echo "H800L 94GB" ;;
+    233b) echo "H200 NVL" ;;
+    233d) echo "H100 96GB" ;;
+    2342) echo "GH200 120GB/480GB" ;;
+    2348) echo "GH200 144GB HBM3e" ;;
+    237e) echo "H100 GH3" ;;
+    # Blackwell (GB100/GB102/GB110)
+    2901) echo "B200" ;;
+    2920) echo "B100" ;;
+    2941) echo "HGX GB200" ;;
+    29bc) echo "B100" ;;
+    3182) echo "B300 SXM6" ;;
+    31a1) echo "GB300 MaxQ" ;;
+    31c2) echo "GB300" ;;
+    # Ada Lovelace (AD102/AD104) — data center
+    26b5) echo "L40" ;;
+    26b8) echo "L40G" ;;
+    26b9) echo "L40S" ;;
+    26f5) echo "L40 CNX" ;;
+    27b8) echo "L4" ;;
+    # Ampere (GA100)
+    20b0) echo "A100 SXM4 40GB" ;;
+    20b1) echo "A100 PCIe 40GB" ;;
+    20b2) echo "A100 SXM4 80GB" ;;
+    20b3) echo "A100 SXM 64GB" ;;
+    20b5) echo "A100 PCIe 80GB" ;;
+    20b7) echo "A30 PCIe" ;;
+    20b8) echo "A100X" ;;
+    20b9) echo "A30X" ;;
+    20bd) echo "A800 SXM4 40GB" ;;
+    20f0) echo "A100 PG506-207" ;;
+    20f1) echo "A100 PCIe 40GB" ;;
+    20f3) echo "A800 SXM4 80GB" ;;
+    20f5) echo "A800 80GB PCIe" ;;
+    # Volta / Turing
+    1db1) echo "V100 SXM2 32GB" ;;
+    1db4) echo "V100 PCIe 16GB" ;;
+    1db5) echo "V100 PCIe 32GB" ;;
+    1db6) echo "V100 SXM2 16GB" ;;
+    1df6) echo "V100 FHHL" ;;
+    1eb8) echo "T4" ;;
+    *) echo "unknown ($1)" ;;
+  esac
+}
 
 echo "=========================================="
 echo "GPU & NIC Discovery"
@@ -101,49 +103,63 @@ echo ""
 
 HAS_IB=false
 HAS_ROCE=false
-HAS_SRIOV=false
 HAS_VF=false
 HAS_GPU=false
-ALL_GPU_MODELS=()  # array to preserve multi-word model names
+IS_VM=false
+ALL_GPU_MODELS=""
 
 for NODE in $WORKER_NODES; do
   echo "--- Node: $NODE ---"
 
   oc debug node/$NODE --image=registry.access.redhat.com/ubi9/ubi:latest -- bash -c '
     chroot /host bash -c "
+      # --- VM detection (run first so NIC probe can use it) ---
+      is_vm=false
+      if ls /sys/bus/virtio/devices/* 1>/dev/null 2>&1; then
+        is_vm=true
+      fi
+      echo \"---VM_START---\"
+      echo \"VM|\$is_vm\"
+      echo \"---VM_END---\"
+
       # --- NICs ---
+      # Detect RDMA NICs via /sys/class/infiniband/ (always present
+      # regardless of whether a netdev interface exists on the host).
       echo \"---NIC_START---\"
-      for iface in /sys/class/net/*; do
-        ifname=\$(basename \$iface)
-
-        has_ip=\$(ip addr show \$ifname 2>/dev/null | grep -c \"inet \" || echo 0)
-        [ \"\$has_ip\" -gt 0 ] && continue
-        [[ \$ifname =~ ^(br-|veth|ovn|genev|vlan|bond|team|lo) ]] && continue
-
-        if [ -d \"/sys/class/net/\$ifname/device/infiniband\" ]; then
-          pci_path=\$(readlink -f /sys/class/net/\$ifname/device 2>/dev/null || echo unknown)
+      if ls /sys/class/infiniband/*/ports 1>/dev/null 2>&1; then
+        for rd in /sys/class/infiniband/*; do
+          rdma_dev=\$(basename \$rd)
+          pci_path=\$(readlink -f \$rd/device 2>/dev/null || echo unknown)
           pci=\$(basename \$pci_path)
-          numa=\$(cat /sys/class/net/\$ifname/device/numa_node 2>/dev/null || echo -1)
-          rdma_dev=\$(ls /sys/class/net/\$ifname/device/infiniband 2>/dev/null | head -1)
-          link_layer=unknown
-          if [ -n \"\$rdma_dev\" ] && [ -f \"/sys/class/infiniband/\$rdma_dev/ports/1/link_layer\" ]; then
-            link_layer=\$(cat /sys/class/infiniband/\$rdma_dev/ports/1/link_layer 2>/dev/null || echo unknown)
-          fi
+          link_layer=\$(cat \$rd/ports/1/link_layer 2>/dev/null || echo unknown)
+          numa=\$(cat \$rd/device/numa_node 2>/dev/null || echo -1)
+          device_id=\$(cat \$rd/device/device 2>/dev/null || echo unknown)
+          device_id=\${device_id#0x}
           sriov_capable=false
           sriov_totalvfs=0
-          if [ -f \"/sys/class/net/\$ifname/device/sriov_numvfs\" ]; then
+          if [ -f \"\$rd/device/sriov_totalvfs\" ]; then
             sriov_capable=true
-            sriov_totalvfs=\$(cat /sys/class/net/\$ifname/device/sriov_totalvfs 2>/dev/null || echo 0)
+            sriov_totalvfs=\$(cat \$rd/device/sriov_totalvfs 2>/dev/null || echo 0)
           fi
           is_vf=false
-          if [ -L \"/sys/class/net/\$ifname/device/physfn\" ]; then
+          if [ -L \"\$rd/device/physfn\" ]; then
+            is_vf=true
+          elif [ \"\$is_vm\" = true ] && [ ! -f \"\$rd/device/sriov_totalvfs\" ]; then
+            # On a VM, absence of sriov_totalvfs means this is a
+            # passthrough VF (on bare metal it may just mean SR-IOV
+            # is disabled, so we only apply this heuristic in VMs)
             is_vf=true
           fi
-          carrier=\$(cat /sys/class/net/\$ifname/carrier 2>/dev/null || echo 0)
-          device_id=\$(cat /sys/class/net/\$ifname/device/device 2>/dev/null || echo unknown)
-          echo \"NIC|\$ifname|\$pci|\$link_layer|\$sriov_capable|\$sriov_totalvfs|\$carrier|\$numa|\$rdma_dev|\$device_id|\$is_vf\"
-        fi
-      done
+          state=\$(cat \$rd/ports/1/state 2>/dev/null || echo unknown)
+          carrier=0
+          echo \"\$state\" | grep -q ACTIVE && carrier=1
+          netdev=\$(ls \$rd/device/net 2>/dev/null | head -1)
+          if [ -z \"\$netdev\" ]; then
+            netdev=\"--\"
+          fi
+          echo \"NIC|\$rdma_dev|\$pci|\$link_layer|\$sriov_capable|\$sriov_totalvfs|\$carrier|\$numa|\$rdma_dev|\$device_id|\$is_vf|\$netdev\"
+        done
+      fi
       echo \"---NIC_END---\"
 
       # --- GPUs ---
@@ -174,12 +190,12 @@ for NODE in $WORKER_NODES; do
   if [ -n "$nic_lines" ]; then
     echo ""
     echo "  NICs:"
-    echo "  $(printf '%-14s %-14s %-12s %-6s %-8s %-7s %-5s %-10s %s' 'INTERFACE' 'PCI' 'LINK_LAYER' 'NUMA' 'SR-IOV' 'VFs' 'IS_VF' 'CARRIER' 'RDMA_DEV')"
-    while IFS='|' read -r _ ifname pci link_layer sriov_capable sriov_totalvfs carrier numa rdma_dev device_id is_vf; do
-      echo "  $(printf '%-14s %-14s %-12s %-6s %-8s %-7s %-5s %-10s %s' "$ifname" "$pci" "$link_layer" "$numa" "$sriov_capable" "$sriov_totalvfs" "$is_vf" "$carrier" "$rdma_dev")"
+    echo "  $(printf '%-10s %-14s %-12s %-6s %-5s %-7s %-12s %s' 'RDMA_DEV' 'PCI' 'LINK_LAYER' 'NUMA' 'IS_VF' 'CARRIER' 'NETDEV' 'STATE')"
+    while IFS='|' read -r _ ifname pci link_layer sriov_capable sriov_totalvfs carrier numa rdma_dev device_id is_vf netdev; do
+      if [ "$carrier" = "1" ]; then state="up"; else state="down"; fi
+      echo "  $(printf '%-10s %-14s %-12s %-6s %-5s %-7s %-12s %s' "$rdma_dev" "$pci" "$link_layer" "$numa" "$is_vf" "$carrier" "$netdev" "$state")"
       if [ "$link_layer" = "InfiniBand" ]; then HAS_IB=true; fi
       if [ "$link_layer" = "Ethernet" ]; then HAS_ROCE=true; fi
-      if [ "$sriov_capable" = "true" ]; then HAS_SRIOV=true; fi
       if [ "$is_vf" = "true" ]; then HAS_VF=true; fi
     done <<< "$nic_lines"
   else
@@ -194,12 +210,18 @@ for NODE in $WORKER_NODES; do
     echo "  GPUs:"
     echo "  $(printf '%-14s %-8s %-6s %s' 'PCI' 'DEV_ID' 'NUMA' 'MODEL')"
     while IFS='|' read -r _ pci device_id numa; do
-      model="${GPU_MODELS[$device_id]:-unknown ($device_id)}"
-      ALL_GPU_MODELS+=("$model")
+      model=$(gpu_model_lookup "$device_id")
+      ALL_GPU_MODELS="${ALL_GPU_MODELS}${ALL_GPU_MODELS:+$'\n'}${model}"
       echo "  $(printf '%-14s %-8s %-6s %s' "$pci" "$device_id" "$numa" "$model")"
     done <<< "$gpu_lines"
   else
     echo "  GPUs: none detected"
+  fi
+
+  # --- Parse VM detection ---
+  vm_line=$(sed -n '/^---VM_START---$/,/^---VM_END---$/p' "$PROBE_DIR/${NODE}-raw.txt" | grep "^VM|" || true)
+  if echo "$vm_line" | grep -q "VM|true"; then
+    IS_VM=true
   fi
 
   # --- Save structured JSON for this node ---
@@ -210,10 +232,10 @@ for NODE in $WORKER_NODES; do
     echo "  \"nics\": ["
     first=true
     if [ -n "$nic_lines" ]; then
-      while IFS='|' read -r _ ifname pci link_layer sriov_capable sriov_totalvfs carrier numa rdma_dev device_id is_vf; do
+      while IFS='|' read -r _ ifname pci link_layer sriov_capable sriov_totalvfs carrier numa rdma_dev device_id is_vf netdev; do
         [ "$first" = true ] && first=false || echo ","
-        printf '    {"ifname":"%s","pci":"%s","link_layer":"%s","numa":%s,"sriov_capable":%s,"sriov_totalvfs":%s,"is_vf":%s,"carrier":"%s","rdma_dev":"%s"}' \
-          "$ifname" "$pci" "$link_layer" "$numa" "$sriov_capable" "$sriov_totalvfs" "$is_vf" "$carrier" "$rdma_dev"
+        printf '    {"rdma_dev":"%s","pci":"%s","link_layer":"%s","numa":%s,"sriov_capable":%s,"is_vf":%s,"carrier":"%s","netdev":"%s"}' \
+          "$rdma_dev" "$pci" "$link_layer" "$numa" "$sriov_capable" "$is_vf" "$carrier" "$netdev"
       done <<< "$nic_lines"
     fi
     echo ""
@@ -223,7 +245,7 @@ for NODE in $WORKER_NODES; do
     first=true
     if [ -n "$gpu_lines" ]; then
       while IFS='|' read -r _ pci device_id numa; do
-        model="${GPU_MODELS[$device_id]:-unknown}"
+        model=$(gpu_model_lookup "$device_id")
         [ "$first" = true ] && first=false || echo ","
         printf '    {"pci":"%s","device_id":"%s","numa":%s,"model":"%s"}' \
           "$pci" "$device_id" "$numa" "$model"
@@ -251,36 +273,38 @@ for NODE in $WORKER_NODES; do
 
   echo "  Node: $NODE"
 
-  # Collect NUMA nodes
-  declare -A NUMA_GPUS=()
-  declare -A NUMA_NICS=()
+  # Collect NUMA data into temp files (portable — no associative arrays)
+  numa_tmp="$PROBE_DIR/${NODE}-numa"
+  rm -f "${numa_tmp}"-gpu-* "${numa_tmp}"-nic-*
 
   if [ -n "$gpu_lines" ]; then
     while IFS='|' read -r _ pci device_id numa; do
-      model="${GPU_MODELS[$device_id]:-$device_id}"
-      NUMA_GPUS[$numa]="${NUMA_GPUS[$numa]:-} $pci($model)"
+      model=$(gpu_model_lookup "$device_id")
+      echo "$pci($model)" >> "${numa_tmp}-gpu-${numa}"
     done <<< "$gpu_lines"
   fi
 
   if [ -n "$nic_lines" ]; then
-    while IFS='|' read -r _ ifname pci link_layer sriov_capable sriov_totalvfs carrier numa rdma_dev device_id is_vf; do
-      NUMA_NICS[$numa]="${NUMA_NICS[$numa]:-} $ifname($rdma_dev)"
+    while IFS='|' read -r _ ifname pci link_layer sriov_capable sriov_totalvfs carrier numa rdma_dev device_id is_vf netdev; do
+      echo "$rdma_dev($netdev)" >> "${numa_tmp}-nic-${numa}"
     done <<< "$nic_lines"
   fi
 
-  # Get sorted unique NUMA nodes
-  all_numas=$(echo "${!NUMA_GPUS[@]} ${!NUMA_NICS[@]}" | tr ' ' '\n' | sort -un)
+  # Gather unique NUMA IDs from the temp file names
+  all_numas=$( (ls "${numa_tmp}"-gpu-* "${numa_tmp}"-nic-* 2>/dev/null || true) \
+    | sed 's/.*-gpu-//; s/.*-nic-//' | sort -un )
+
   for n in $all_numas; do
     echo "    NUMA $n:"
-    if [ -n "${NUMA_GPUS[$n]:-}" ]; then
-      echo "      GPUs:${NUMA_GPUS[$n]}"
+    if [ -f "${numa_tmp}-gpu-${n}" ]; then
+      echo "      GPUs: $(tr '\n' ' ' < "${numa_tmp}-gpu-${n}")"
     fi
-    if [ -n "${NUMA_NICS[$n]:-}" ]; then
-      echo "      NICs:${NUMA_NICS[$n]}"
+    if [ -f "${numa_tmp}-nic-${n}" ]; then
+      echo "      NICs: $(tr '\n' ' ' < "${numa_tmp}-nic-${n}")"
     fi
   done
 
-  unset NUMA_GPUS NUMA_NICS
+  rm -f "${numa_tmp}"-gpu-* "${numa_tmp}"-nic-*
   echo ""
 done
 
@@ -291,13 +315,13 @@ echo "=========================================="
 echo ""
 echo "  InfiniBand detected: $HAS_IB"
 echo "  RoCE detected:       $HAS_ROCE"
-echo "  SR-IOV capable:      $HAS_SRIOV"
 echo "  NICs are VFs:        $HAS_VF"
 echo "  NVIDIA GPUs:         $HAS_GPU"
+echo "  Virtual machine:     $IS_VM"
 
 # Deduplicate GPU models
-if [ ${#ALL_GPU_MODELS[@]} -gt 0 ]; then
-  unique_models=$(printf '%s\n' "${ALL_GPU_MODELS[@]}" | sort -u | paste -sd ', ')
+if [ -n "$ALL_GPU_MODELS" ]; then
+  unique_models=$(echo "$ALL_GPU_MODELS" | sort -u | tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g')
   echo "  GPU models:          $unique_models"
 fi
 echo ""
@@ -307,22 +331,17 @@ echo "Recommended Platform Overlay"
 echo "=========================================="
 echo ""
 
-if [ "$HAS_VF" = true ] && [ "$HAS_GPU" = true ]; then
+if [ "$IS_VM" = true ] && [ "$HAS_GPU" = true ]; then
   echo "  -> ibm-cloud"
   echo ""
-  echo "  Your NICs are SR-IOV Virtual Functions (VMs with passthrough NICs)."
-  echo "  SR-IOV operator cannot be used; host-device CNI will attach NICs to pods."
+  echo "  Your cluster is running on virtual machines with GPU passthrough."
+  echo "  SR-IOV operator is not applicable; use host-device CNI for RDMA NICs."
   echo "  Use: ./05-ocp-accelerator-operators/install.sh --platform ibm-cloud"
 elif [ "$HAS_IB" = true ] && [ "$HAS_ROCE" = false ]; then
   echo "  -> bare-metal-ib"
   echo ""
   echo "  Your cluster has InfiniBand NICs on physical functions."
   echo "  Use: ./05-ocp-accelerator-operators/install.sh --platform bare-metal-ib"
-elif [ "$HAS_ROCE" = true ] && [ "$HAS_IB" = false ]; then
-  echo "  -> bare-metal-roce"
-  echo ""
-  echo "  Your cluster has RoCE NICs on physical functions."
-  echo "  Use: ./05-ocp-accelerator-operators/install.sh --platform bare-metal-roce"
 elif [ "$HAS_IB" = true ] && [ "$HAS_ROCE" = true ]; then
   echo "  -> bare-metal-ib  (likely — mixed link layers detected)"
   echo ""
@@ -331,6 +350,11 @@ elif [ "$HAS_IB" = true ] && [ "$HAS_ROCE" = true ]; then
   echo "  and the other is Ethernet (management/storage). If RDMA traffic uses"
   echo "  InfiniBand, use bare-metal-ib. If your RDMA fabric is RoCE, use"
   echo "  bare-metal-roce."
+elif [ "$HAS_ROCE" = true ]; then
+  echo "  -> bare-metal-roce"
+  echo ""
+  echo "  Your cluster has RoCE NICs on physical functions."
+  echo "  Use: ./05-ocp-accelerator-operators/install.sh --platform bare-metal-roce"
 elif [ "$HAS_GPU" = true ]; then
   echo "  -> ibm-cloud (or similar cloud environment)"
   echo ""

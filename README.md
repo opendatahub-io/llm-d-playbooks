@@ -16,7 +16,6 @@ This repository contains playbooks for deploying and validating [llm-d](https://
 
 | Chapter | Directory | Purpose | OCP | xKS |
 |---------|-----------|---------|-----|-----|
-| 0 | [00-pre/](00-pre/) | Clean up prior installations, label nodes | Y | Y |
 | 1 | [01-cluster-install/](01-cluster-install/) | Install and bootstrap a Kubernetes cluster | Y | Y |
 | 2 | [02-validate-cluster-install/](02-validate-cluster-install/) | Verify cluster meets minimum requirements | Y | Y |
 | 3 | [03-llm-d-dependencies/](03-llm-d-dependencies/) | Install llm-d operators (cert-manager, service mesh, KServe, etc.) | Y | Y |
