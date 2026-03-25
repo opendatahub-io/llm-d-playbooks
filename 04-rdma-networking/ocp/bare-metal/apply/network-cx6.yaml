@@ -1,0 +1,15 @@
+# SriovNetwork for ConnectX-6 (resourceName must match policy-cx6-std).
+apiVersion: sriovnetwork.openshift.io/v1
+kind: SriovNetwork
+metadata:
+  name: network-cx6
+  namespace: openshift-sriov-network-operator
+spec:
+  resourceName: mellanox_cx6
+  networkNamespace: default
+  vlan: 10
+  ipam: |
+    {
+      "type": "whereabouts",
+      "range": "192.168.20.0/24"
+    }

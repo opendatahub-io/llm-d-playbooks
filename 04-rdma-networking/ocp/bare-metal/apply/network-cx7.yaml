@@ -1,0 +1,19 @@
+# SriovNetwork for ConnectX-7 (resourceName must match policy-cx7-highspeed).
+apiVersion: sriovnetwork.openshift.io/v1
+kind: SriovNetwork
+metadata:
+  name: network-cx7
+  namespace: openshift-sriov-network-operator
+spec:
+  resourceName: mellanox_cx7
+  networkNamespace: default
+  vlan: 0
+  ipam: |
+    {
+      "type": "whereabouts",
+      "range": "192.168.100.0/24",
+      "exclude": [
+        "192.168.100.1",
+        "192.168.100.255"
+      ]
+    }

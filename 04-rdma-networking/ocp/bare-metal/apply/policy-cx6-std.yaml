@@ -1,0 +1,21 @@
+# SriovNetworkNodePolicy for ConnectX-6 (Device ID 101f).
+apiVersion: sriovnetwork.openshift.io/v1
+kind: SriovNetworkNodePolicy
+metadata:
+  name: policy-cx6-std
+  namespace: openshift-sriov-network-operator
+spec:
+  resourceName: mellanox_cx6
+  nodeSelector:
+    feature.node.kubernetes.io/network-sriov.capable: "true"
+  priority: 10
+  numVfs: 2
+  mtu: 1500
+  nicSelector:
+    vendor: "15b3"
+    deviceID: "101f"  # ConnectX-6
+    pfNames:
+      - eno2np0
+  deviceType: netdevice
+  isRdma: true
+  linkType: eth

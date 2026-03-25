@@ -1,0 +1,22 @@
+# SriovNetworkNodePolicy for ConnectX-7 (Device ID 1021).
+apiVersion: sriovnetwork.openshift.io/v1
+kind: SriovNetworkNodePolicy
+metadata:
+  name: policy-cx7-highspeed
+  namespace: openshift-sriov-network-operator
+spec:
+  resourceName: mellanox_cx7
+  nodeSelector:
+    feature.node.kubernetes.io/network-sriov.capable: "true"
+  priority: 10
+  numVfs: 4
+  mtu: 9000
+  nicSelector:
+    vendor: "15b3"
+    deviceID: "1021"  # ConnectX-7
+    pfNames:
+      - eno5np0    # Common name on u15, u16, u38
+      - enp3s0np0  # Specific name on u35
+  deviceType: netdevice
+  isRdma: true
+  linkType: eth
